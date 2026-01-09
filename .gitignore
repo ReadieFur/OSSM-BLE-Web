@@ -1,8 +1,8 @@
 node_modules/
 .DS_Store
-src/static/*.map
-src/static/*.css
-src/static/*.js
-src/static/*.d.ts
+src/*.map
+src/*.css
+src/*.js
+src/*.d.ts
 tsconfig.tsbuildinfo
 .vscode/
