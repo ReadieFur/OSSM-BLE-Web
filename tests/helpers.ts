@@ -1,0 +1,79 @@
+import puppeteer, { Browser, Page } from "puppeteer";
+import { readFile } from "fs/promises";
+import path from "path";
+import { SourceMapConsumer } from "source-map";
+
+async function mapBrowserStackToSource<T>(stack: string): Promise<string> {
+	const lines = stack.split("\n");
+
+	// Find the first browser frame
+	const firstBrowserIndex = lines.findIndex((l) =>
+		/http:\/\/localhost:\d+/.test(l)
+	);
+	if (firstBrowserIndex === -1) {
+		// No browser frames
+		return stack;
+	}
+
+	const nodeFrames = lines.slice(0, firstBrowserIndex);
+	const browserFrames = lines.slice(firstBrowserIndex);
+
+	// Browser frames are in reverse order
+	browserFrames.reverse();
+
+	// Attempt to map stack trace for localhost to project source files
+	const remappedBrowserFrames: string[] = [];
+	for (const line of browserFrames) {
+		// Regex to match "http://localhost:3000/file.js:line:col"
+		const regex = /http:\/\/localhost:\d+\/([^\s:]+):(\d+):(\d+)/;
+		const match = line.match(regex);
+		if (!match) {
+			remappedBrowserFrames.push(line);
+			continue;
+		}
+
+		const [fullMatch, jsPath, lineStr, colStr] = match;
+		const jsFilePath = path.join("src", jsPath);
+
+		try {
+			const mapFilePath = jsFilePath + ".map";
+			const mapContents = await readFile(mapFilePath, "utf-8");
+			const consumer = await new SourceMapConsumer(mapContents);
+
+			const original = consumer.originalPositionFor({
+				line: Number(lineStr),
+				column: Number(colStr),
+			});
+
+			// Map URL in stack to original TS file
+			if (original.source)
+				remappedBrowserFrames.push(line.replace(
+					fullMatch,
+					path.join("src", `${original.source}:${original.line}:${original.column}`)
+				));
+			else
+				remappedBrowserFrames.push(line);
+
+			consumer.destroy();
+		} catch {
+			// Ignore errors (e.g, no source map)
+			remappedBrowserFrames.push(line);
+		}
+	}
+
+	// Combine remapped browser frames at the front, then Node frames
+	return [...remappedBrowserFrames, ...nodeFrames].join("\n");
+}
+
+export async function pageEvaluate<T>(page: Page, pageFunction: (...args: any[]) => Promise<T> | T, ...args: any[]): Promise<T> {
+    // Required since puppeteer which places browser errors at the end of the stack trace.
+    Error.stackTraceLimit = 1000;
+
+	try {
+		return await page.evaluate(pageFunction, ...args);
+	} catch (err: any) {
+		if (err.stack)
+			err.stack = await mapBrowserStackToSource(err.stack);
+		throw err;
+	}
+}

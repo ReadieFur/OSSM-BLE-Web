@@ -7,5 +7,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest"
+  },
+  "dependencies": {
+    "source-map": "^0.7.6"
   }
 }

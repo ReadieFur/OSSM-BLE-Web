@@ -3,6 +3,7 @@ import http from "http";
 import puppeteer, { Browser, Page } from "puppeteer";
 import path from "path";
 import { readFile } from "fs/promises";
+import { pageEvaluate } from "./helpers.js";
 import type { OssmBle } from "../src/ossmBle.js";
 
 declare global {
@@ -14,7 +15,7 @@ declare global {
 
 async function createOssmBleInstance(page: Page): Promise<void> {
 	// Create a button that can trigger a user gesture for pairing.
-	await page.evaluate(async () => {
+	await pageEvaluate(page, async () => {
 		const bleButton = document.createElement("button");
 		bleButton.id = "bleButton";
 		bleButton.innerText = "Connect to BLE Device";
@@ -35,14 +36,14 @@ async function createOssmBleInstance(page: Page): Promise<void> {
 	const bluetoothDevice = await devicePrompt.waitForDevice(d => d.name == "OSSM");
 	await devicePrompt.select(bluetoothDevice);
 
+	// Ensure the OssmBle instance is created.
+	(await page.waitForFunction(() => !!window.ossmBleInstance, { timeout: 1000 }))
+
 	// Remove the button after use.
-	await page.evaluate(() => {
+	await pageEvaluate(page, () => {
 		const bleButton = document.getElementById("bleButton");
 		bleButton?.remove();
 	});
-
-	// Ensure the OssmBle instance is created.
-	expect(await page.waitForFunction(() => !!window.ossmBleInstance, { timeout: 1000 })).toBeTruthy();
 }
 
 describe.sequential("OSSM BLE", () => {
@@ -96,7 +97,7 @@ describe.sequential("OSSM BLE", () => {
 		await page.goto("http://localhost:3000/");
 
 		// Ensure bluetooth is supported (not a test case but a prerequisite)
-		const bleSupport = await page.evaluate(() => {
+		const bleSupport = await pageEvaluate(page, () => {
 			return !!navigator.bluetooth;
 		});
 		expect(bleSupport).toBe(true);
@@ -113,6 +114,7 @@ describe.sequential("OSSM BLE", () => {
 
 		// Enable page logging.
 		page.on("console", msg => console.log("PAGE LOG:", msg.text()));
+		page.on("pageerror", err => console.error("PAGE ERROR:", err));
 	});
 
 	afterAll(async () => {
@@ -127,14 +129,14 @@ describe.sequential("OSSM BLE", () => {
 
 	afterEach(async () => {
 		// Dispose of any existing OssmBle instance.
-		await page.evaluate(async () => {
+		await pageEvaluate(page, async () => {
 			try { window.ossmBleInstance?.[Symbol.dispose](); }
 			catch {}
 			window.ossmBleInstance = undefined;
 		});
 	});
 
-	test("connect to ble device", { timeout: 10_000 }, async () => {
+	test("connect to device", { timeout: 10_000 }, async () => {
 		await createOssmBleInstance(page);
 	});
 });
