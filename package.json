@@ -1,6 +1,11 @@
 {
   "devDependencies": {
-    "@types/web-bluetooth": "^0.0.21"
+    "@types/web-bluetooth": "^0.0.21",
+    "puppeteer": "^24.34.0",
+    "vitest": "^4.0.16"
   },
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "test": "vitest"
+  }
 }
