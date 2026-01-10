@@ -46,7 +46,7 @@ async function createOssmBleInstance(page: Page): Promise<void> {
 	});
 }
 
-describe.sequential("OSSM BLE", () => {
+describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 	let httpServer: http.Server;
 	let browser: Browser;
 	let page: Page;
@@ -136,7 +136,7 @@ describe.sequential("OSSM BLE", () => {
 		});
 	});
 
-	test("connect to device", { timeout: 10_000 }, async () => {
+	test("connect to device", async () => {
 		await createOssmBleInstance(page);
 	});
 });
