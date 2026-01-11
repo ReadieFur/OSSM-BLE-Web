@@ -85,6 +85,7 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 		browser = await puppeteer.launch({
 			headless: false,
 			devtools: true,
+			debuggingPort: 9222,
 			args: [
 				"--window-size=800,600",
 				"--enable-features=WebBluetooth",
@@ -94,7 +95,11 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 		});
 
 		page = await browser.newPage();
+		// Enable page logging.
+		page.on("console", msg => console.log("PAGE LOG:", msg.text()));
+		page.on("pageerror", err => console.error("PAGE ERROR:", err));
 		await page.goto("http://localhost:3000/");
+		await page.bringToFront();
 
 		// Ensure bluetooth is supported (not a test case but a prerequisite)
 		const bleSupport = await pageEvaluate(page, () => {
@@ -111,10 +116,6 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 			`
 		});
 		expect(await page.waitForFunction(() => typeof window.OssmBle !== "undefined", { timeout: 1000 })).toBeTruthy();
-
-		// Enable page logging.
-		page.on("console", msg => console.log("PAGE LOG:", msg.text()));
-		page.on("pageerror", err => console.error("PAGE ERROR:", err));
 	});
 
 	afterAll(async () => {
@@ -138,5 +139,14 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 
 	test("connect to device", async () => {
 		await createOssmBleInstance(page);
+	});
+
+	test("setSpeedKnobConfig", async () => {
+		await createOssmBleInstance(page);
+		await pageEvaluate(page, async () => {
+			window.ossmBleInstance!.begin();
+			await window.ossmBleInstance!.setSpeedKnobConfig(true);
+			await window.ossmBleInstance!.setSpeedKnobConfig(false);
+		});
 	});
 });

@@ -4,5 +4,9 @@ src/*.map
 src/*.css
 src/*.js
 src/*.d.ts
+tests/*.map
+tests/*.css
+tests/*.js
+tests/*.d.ts
 tsconfig.tsbuildinfo
 .vscode/

@@ -38,5 +38,8 @@
     "watchDirectory": "dynamicPriorityPolling",
     "fallbackPolling": "dynamicpriority"
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "tests/dev.ts"
+  ]
 }
