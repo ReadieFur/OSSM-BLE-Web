@@ -1,12 +1,15 @@
 import * as esbuild from "esbuild";
 import watcher from "@parcel/watcher";
 import fs from "fs";
+import { spawn } from "child_process";
+import path from "path";
 
 //#region User configurable build options
 // Base build options
 const projectBuildOptions: esbuild.BuildOptions = {
     entryPoints: ["src/ossmBle.ts"],
     bundle: true,
+    outfile: "dist/ossmBle.js",
     platform: "browser",
     format: "esm",
     target: ["esnext"]
@@ -17,16 +20,15 @@ const profiles: Record<string, esbuild.BuildOptions> = {
     release: {
         sourcemap: true,
         sourcesContent: false,
-        outfile: "dist/ossmBle.js",
     },
     "release-min": {
         minify: true,
-        outfile: "dist/ossmBle.min.js",
+        // outfile: "dist/ossmBle.min.js",
     },
     dev: {
         sourcemap: true,
         sourcesContent: false,
-        outfile: "dist/ossmBle.dev.js",
+        // outfile: "dist/ossmBle.dev.js",
     }
 };
 
@@ -39,7 +41,8 @@ const devTestingBuildOptions: esbuild.BuildOptions = {
     bundle: false,
     sourcemap: true,
     sourcesContent: false,
-    outdir: "dev"
+    outdir: "dev",
+    outfile: undefined,
 };
 //#endregion
 
@@ -63,9 +66,28 @@ const buildOptions = {
 
 async function build(): Promise<void> {
     try {
+        // Bundle source files
         await esbuild.build(buildOptions)
+
+        // Generate declaration files
+        await new Promise((resolve, reject) => {
+            const tsc = spawn(
+                process.execPath,
+                [path.resolve("node_modules", "typescript", "lib", "tsc.js"), "--project", "tsconfig.types.json"],
+                { stdio: "inherit" }
+            );
+            tsc.on("close", code => {
+                if (code === 0)
+                    resolve(null);
+                else
+                    reject(new Error(`tsc process exited with code ${code}`));
+            });
+        });
+
+        // Build dev tools if required
         if (isDevProfile)
             await esbuild.build(devTestingBuildOptions);
+
         console.log("Build succeeded.");
     } catch (error) {
         throw error;

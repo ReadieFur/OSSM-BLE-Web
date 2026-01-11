@@ -33,10 +33,9 @@ async function mapBrowserStackToSource<T>(stack: string): Promise<string> {
 		}
 
 		const [fullMatch, jsPath, lineStr, colStr] = match;
-		const jsFilePath = path.join("src", jsPath);
 
 		try {
-			const mapFilePath = jsFilePath + ".map";
+			const mapFilePath = jsPath + ".map";
 			const mapContents = await readFile(mapFilePath, "utf-8");
 			const consumer = await new SourceMapConsumer(mapContents);
 
@@ -46,11 +45,16 @@ async function mapBrowserStackToSource<T>(stack: string): Promise<string> {
 			});
 
 			// Map URL in stack to original TS file
-			if (original.source)
+			if (original.source) {
+				// If the source path is relative, prepend the web url to it (since the project is served from root but the web file may not be resulting in the source path being incorrect).
+				if (!path.isAbsolute(original.source))
+					original.source = path.join(path.dirname(mapFilePath), original.source);
+
 				remappedBrowserFrames.push(line.replace(
 					fullMatch,
-					path.join("src", `${original.source}:${original.line}:${original.column}`)
+					`${original.source}:${original.line}:${original.column}`
 				));
+			}
 			else
 				remappedBrowserFrames.push(line);
 

@@ -6,6 +6,7 @@ import { readFile } from "fs/promises";
 import { pageEvaluate } from "./helpers.js";
 import type { OssmBle } from "../src/ossmBle.js";
 
+//#region ossmBle helpers
 declare global {
 	interface Window {
 		OssmBle: typeof OssmBle;
@@ -45,8 +46,10 @@ async function createOssmBleInstance(page: Page): Promise<void> {
 		bleButton?.remove();
 	});
 }
+//#endregion
 
 describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
+	//#region Test lifecycle
 	let httpServer: http.Server;
 	let browser: Browser;
 	let page: Page;
@@ -68,7 +71,7 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 			}
 			else {
 				// Serve files from src directory
-				const filePath = path.join(process.cwd(), "src", req.url!);
+				const filePath = path.join(process.cwd(), req.url!);
 				try {
 					const fileContent = await readFile(filePath);
 					let contentType = req.url!.endsWith(".js") ? "application/javascript" : "text/plain";
@@ -100,6 +103,12 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 		page.on("pageerror", err => console.error("PAGE ERROR:", err));
 		await page.goto("http://localhost:3000/");
 		await page.bringToFront();
+		// Ensure this is the only page that is open.
+		(await browser.pages()).forEach(p => {
+			if (p !== page) {
+				p.close();
+			}
+		});
 
 		// Ensure bluetooth is supported (not a test case but a prerequisite)
 		const bleSupport = await pageEvaluate(page, () => {
@@ -108,10 +117,13 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 		expect(bleSupport).toBe(true);
 
 		// Load the OssmBle module
+		// const ossmBlePath = process.env.VITEST_VSCODE ? "/dist/ossmBle.dev.js" : "/dist/ossmBle.js";
+		const ossmBlePath = "/dist/ossmBle.js";
+		console.log("Loading OSSM BLE module from:", ossmBlePath);
 		await page.addScriptTag({
 			type: "module",
 			content: `
-				import { OssmBle } from '/ossmBle.js';
+				import { OssmBle } from '${ossmBlePath}';
 				window.OssmBle = OssmBle;
 			`
 		});
@@ -120,6 +132,7 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 
 	afterAll(async () => {
 		await browser.close();
+		httpServer.close();
 	});
 
 	beforeEach(async () => {
@@ -136,6 +149,12 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 			window.ossmBleInstance = undefined;
 		});
 	});
+	//#endregion
+
+	//#endregion Test cases
+	test("module loads", async () => {
+		expect(await pageEvaluate(page, () => typeof window.OssmBle !== "undefined")).toBe(true);
+	});
 
 	test("connect to device", async () => {
 		await createOssmBleInstance(page);
@@ -145,8 +164,10 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 		await createOssmBleInstance(page);
 		await pageEvaluate(page, async () => {
 			window.ossmBleInstance!.begin();
+			await window.ossmBleInstance!.waitForReady();
 			await window.ossmBleInstance!.setSpeedKnobConfig(true);
 			await window.ossmBleInstance!.setSpeedKnobConfig(false);
 		});
 	});
+	//#endregion
 });

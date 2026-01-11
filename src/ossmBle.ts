@@ -1,7 +1,7 @@
 // Reference: https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/BLE_Protocol.md
 
 import type { ServicesDefinition } from "./helpers";
-import { delay, DOMExceptionError } from "./helpers.js";
+import { delay, DOMExceptionError } from "./helpers";
 
 //#region Constants
 const OSSM_GATT_SERVICES = {
@@ -32,7 +32,6 @@ const TEXT_ENCODER = new TextEncoder();
 
 export class OssmBle implements Disposable {
     //#region Static
-
     /**
      * Prompts the user via the browser to pair with an OSSM BLE device.
      * @requires that the page is served over HTTPS or from localhost & is called by a user gesture.

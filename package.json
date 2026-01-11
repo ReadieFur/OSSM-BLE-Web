@@ -9,11 +9,11 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --project tsconfig.json --noEmit",
+    "clean": "rm -rf dist/*",
     "build": "ts-node esbuild.config.ts --profile=release",
-    "build-min": "ts-node esbuild.config.ts --profile=release-min",
-    "build-dev": "ts-node esbuild.config.ts --profile=dev --watch",
-    "test": "npm run build && vitest",
-    "test-nobuild": "vitest"
+    "build:min": "ts-node esbuild.config.ts --profile=release-min",
+    "build:dev": "ts-node esbuild.config.ts --profile=dev --watch",
+    "test": "npm run build && vitest"
   },
   "dependencies": {
     "@parcel/watcher": "^2.5.4",
