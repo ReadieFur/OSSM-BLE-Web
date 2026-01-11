@@ -1,12 +1,14 @@
 node_modules/
 .DS_Store
 src/*.map
-src/*.css
 src/*.js
 src/*.d.ts
 tests/*.map
-tests/*.css
 tests/*.js
 tests/*.d.ts
+dev/*.map
+dev/*.js
+dev/*.d.ts
 tsconfig.tsbuildinfo
 .vscode/
+dist/

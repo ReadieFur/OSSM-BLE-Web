@@ -1,4 +1,4 @@
-import { OssmBle } from "../src/ossmBle.js";
+import { OssmBle } from "../dist/ossmBle.dev.js";
 
 class Dev {
     ossmBle: OssmBle | null = null;

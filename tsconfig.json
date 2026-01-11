@@ -30,7 +30,10 @@
     "skipLibCheck": true,
 
     // Misc
-    "preserveWatchOutput": true
+    "preserveWatchOutput": true,
+
+    // esbuild
+    "noEmit": true
   },
   "watchOptions": {
     // Fix for working on network drives
@@ -40,6 +43,6 @@
   },
   "include": [
     "src/**/*.ts",
-    "tests/dev.ts"
+    "dev/**/*.ts",
   ]
 }
