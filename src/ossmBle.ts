@@ -564,6 +564,17 @@ export class OssmBle implements Disposable {
     //#endregion
 
     //#region Play wrappers
+    /**
+     * Acceleration, coasting, deceleration equally split.
+     * @param speed the speed percentage (0-100)
+     * @param minDepth the minimum depth percentage (0-100)
+     * @param maxDepth the maximum depth percentage (0-100)
+     * @example
+     * ```ts
+     * // Set a simple stroke from 20% to 80% depth at 70% speed
+     * await ossmBle.strokeEngineSetSimpleStroke(70, 20, 80);
+     * ```
+     */
     async strokeEngineSetSimpleStroke(
         speed: number,
         minDepth: number,
