@@ -1,48 +1,44 @@
 import * as esbuild from "esbuild";
 import watcher from "@parcel/watcher";
 import fs from "fs";
-import { spawn } from "child_process";
-import path from "path";
+import type { InlineConfig } from "tsdown";
+import { build as tsbuild } from "tsdown";
 
 //#region User configurable build options
 // Base build options
-const projectBuildOptions: esbuild.BuildOptions = {
-    entryPoints: ["src/ossmBle.ts"],
-    bundle: true,
-    outfile: "dist/ossmBle.js",
+const projectBuildOptions: InlineConfig = {
+    entry: "src/ossmBle.ts",
+    outDir: "dist",
     platform: "browser",
     format: "esm",
-    target: ["esnext"]
+    target: ["esnext"],
+    clean: true,
 };
 
 // Profile overrides
-const profiles: Record<string, esbuild.BuildOptions> = {
-    release: {
-        sourcemap: true,
-        sourcesContent: false,
-    },
+const profiles: Record<string, InlineConfig> = {
+    release: {},
     "release-min": {
         minify: true,
-        // outfile: "dist/ossmBle.min.js",
     },
     dev: {
-        sourcemap: true,
-        sourcesContent: false,
-        // outfile: "dist/ossmBle.dev.js",
+        dts: {
+            sourcemap: true,
+        },
     }
 };
 
 const devTestingBuildOptions: esbuild.BuildOptions = {
-    // entrypoints should be all TS files in dev/
-    ...projectBuildOptions,
+    platform: "browser",
+    format: "esm",
+    target: ["esnext"],
     entryPoints: await fs.promises.readdir("dev").then(files =>
         files.filter(f => f.endsWith(".ts")).map(f => `dev/${f}`)
     ),
-    bundle: false,
     sourcemap: true,
     sourcesContent: false,
+    bundle: false,
     outdir: "dev",
-    outfile: undefined,
 };
 //#endregion
 
@@ -67,28 +63,11 @@ const buildOptions = {
 async function build(): Promise<void> {
     try {
         // Bundle source files
-        await esbuild.build(buildOptions)
-
-        // Generate declaration files
-        await new Promise((resolve, reject) => {
-            const tsc = spawn(
-                process.execPath,
-                [path.resolve("node_modules", "typescript", "lib", "tsc.js"), "--project", "tsconfig.types.json"],
-                { stdio: "inherit" }
-            );
-            tsc.on("close", code => {
-                if (code === 0)
-                    resolve(null);
-                else
-                    reject(new Error(`tsc process exited with code ${code}`));
-            });
-        });
+        await tsbuild(buildOptions);
 
         // Build dev tools if required
         if (isDevProfile)
             await esbuild.build(devTestingBuildOptions);
-
-        console.log("Build succeeded.");
     } catch (error) {
         throw error;
     }

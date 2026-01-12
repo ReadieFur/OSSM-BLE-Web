@@ -12,7 +12,8 @@
 
     // Other
     "sourceMap": true,
-    "declaration": false,
+    "declaration": true,
+    "isolatedDeclarations": true,
     "removeComments": false,
 
     // Typechecking

@@ -1,4 +1,5 @@
-import { OssmBle } from "../dist/ossmBle.js";
+//@ts-ignore
+import { OssmBle } from "../dist/ossmBle";
 
 class Dev {
     ossmBle: OssmBle | null = null;
