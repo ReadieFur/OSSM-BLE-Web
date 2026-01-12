@@ -215,7 +215,7 @@ export class OssmBle implements Disposable {
         }
     }
 
-    private async sendPlayParameters(
+    private async sendPatternParameters(
         speed: number,
         stroke: number,
         depth: number,
@@ -670,7 +670,7 @@ export class OssmBle implements Disposable {
         const newStroke = maxDepth - minDepth;
         const newSpeed = speed;
 
-        await this.sendPlayParameters(
+        await this.sendPatternParameters(
             newSpeed,
             newStroke,
             newDepth,
@@ -736,12 +736,61 @@ export class OssmBle implements Disposable {
             ? 50 - Math.round(intensity / 2)
             : 50 + Math.round(intensity / 2);
 
-        await this.sendPlayParameters(
+        await this.sendPatternParameters(
             newSpeed,
             newStroke,
             newDepth,
             sensation,
             KnownPattern.TeasingPounding
+        );
+    }
+
+    /**
+     * A continuous stroking motion
+     * @param minDepth the minimum depth percentage (0-100)
+     * @param maxDepth the maximum depth percentage (0-100)
+     * @param speed the speed percentage (0-100)
+     * @param smoothness how smooth or abrupt the motion is (0-100)
+     */
+    async patternRoboStroke(
+        minDepth: number,
+        maxDepth: number,
+        speed: number,
+        smoothness: number
+    ): Promise<void> {
+        /* StrokeEngine.RoboStroke command format:
+         * Similar to SimpleStroke but with adjustable motion profile.
+         *
+         * - Smoothness:
+         *   Controls the motion curve:
+         *     0   → linear, robotic motion
+         *     100 → smooth, gradual acceleration and deceleration
+         */
+
+        // Validate settings
+        if (minDepth < 0 || minDepth > 100)
+            throw new RangeError("minDepthAbsolute must be between 0 and 100.");
+        if (maxDepth < 0 || maxDepth > 100)
+            throw new RangeError("maxDepthAbsolute must be between 0 and 100.");
+        if (minDepth >= maxDepth)
+            throw new RangeError("minDepthAbsolute must be less than maxDepthAbsolute.");
+        if (speed < 0 || speed > 100)
+            throw new RangeError("Speed must be between 0 and 100.");
+        if (smoothness < 0 || smoothness > 100)
+            throw new RangeError("Smoothness must be between 0 and 100.");
+
+        // Calculate command values
+        const newDepth = maxDepth;
+        const newStroke = maxDepth - minDepth;
+        const newSpeed = speed;
+        const newSensation = smoothness;
+
+        await this.sendPatternParameters(
+            newSpeed,
+            newStroke,
+            newDepth,
+            newSensation,
+            KnownPattern.RoboStroke
         );
     }
     //#endregion
