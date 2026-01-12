@@ -13,6 +13,8 @@ export enum DOMExceptionError {
     NetworkError = "NetworkError",
     Timeout = "TimeoutError",
     TypeError = "TypeError",
+    OperationError = "OperationError",
+    DataError = "DataError",
 }
 
 //#region Voodoo compile time type manipulation magic

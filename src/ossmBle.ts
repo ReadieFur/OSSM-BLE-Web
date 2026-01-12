@@ -152,13 +152,19 @@ export class OssmBle implements Disposable {
         this.dispatchEvent(OssmEventType.StateChanged, null);
     }
 
-    private async throwIfCharacteristicIsError(characteristic: BluetoothRemoteGATTCharacteristic | null): Promise<void> {
-        if (!characteristic)
-            throw new Error("Characteristic is null.");
+    private async sendCommand(characteristic: BluetoothRemoteGATTCharacteristic, value: string): Promise<void> {
+        this.throwIfNotReady();
 
-        const value = TEXT_DECODER.decode((await characteristic.readValue()).buffer);
-        if (value.startsWith("error:"))
-            throw new Error(`OSSM returned error: ${value}`);
+        characteristic.writeValue(TEXT_ENCODER.encode(value));
+        
+        await delay(COMMAND_PROCESS_DELAY_MS); // Give OSSM time to process the command.
+        
+        const returnedValue = TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.speedKnobConfiguration.readValue()).buffer);
+        if (returnedValue === `fail:${value}`) {
+            throw new DOMException(`OSSM failed to process command: ${value}`, DOMExceptionError.OperationError);
+        } else if (returnedValue !== `ok:${value}`) {
+            throw new DOMException(`OSSM returned unexpected response for command "${value}": ${returnedValue}`, DOMExceptionError.DataError);
+        }
     }
     //#endregion
 
@@ -223,33 +229,49 @@ export class OssmBle implements Disposable {
     /**
      * Set stroke speed percentage
      * @param speed A {@link number} between 0 and 100
+     * @throws RangeError if speed is out of range
+     * @throws DOMException if the command fails
      */
     async setSpeed(speed: number): Promise<void> {
-        throw new Error("Not implemented yet.");
+        if (speed < 0 || speed > 100)
+            throw new RangeError("Speed must be between 0 and 100.");
+        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:speed:${speed}`);
     }
 
     /**
      * Set stroke length percentage
      * @param stroke A {@link number} between 0 and 100
+     * @throws RangeError if stroke is out of range
+     * @throws DOMException if the command fails
      */
     async setStroke(stroke: number): Promise<void> {
-        throw new Error("Not implemented yet.");
+        if (stroke < 0 || stroke > 100)
+            throw new RangeError("Stroke must be between 0 and 100.");
+        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:stroke:${stroke}`);
     }
 
     /**
      * Set penetration depth percentage
      * @param depth A {@link number} between 0 and 100
+     * @throws RangeError if depth is out of range
+     * @throws DOMException if the command fails
      */
     async setDepth(depth: number): Promise<void> {
-        throw new Error("Not implemented yet.");
+        if (depth < 0 || depth > 100)
+            throw new RangeError("Depth must be between 0 and 100.");
+        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:depth:${depth}`);
     }
 
     /**
      * Set sensation intensity percentage
      * @param sensation A {@link number} between 0 and 100
+     * @throws RangeError if sensation is out of range
+     * @throws DOMException if the command fails
      */
     async setSensation(sensation: number): Promise<void> {
-        throw new Error("Not implemented yet.");
+        if (sensation < 0 || sensation > 100)
+            throw new RangeError("Sensation must be between 0 and 100.");
+        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:sensation:${sensation}`);
     }
 
     /**
@@ -257,7 +279,7 @@ export class OssmBle implements Disposable {
      * @param patternId A {@link number} corresponding to a pattern ID
      */
     async setPattern(patternId: number): Promise<void> {
-        throw new Error("Not implemented yet.");
+        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:pattern:${patternId}`);
     }
 
     /**
@@ -265,7 +287,7 @@ export class OssmBle implements Disposable {
      * @param page One of the {@link OssmMenu} enum values
      */
     async navigateTo(page: OssmMenu): Promise<void> {
-        throw new Error("Not implemented yet.");
+        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `go:${page}`);
     }
 
     /**
