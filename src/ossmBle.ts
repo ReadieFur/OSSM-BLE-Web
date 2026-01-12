@@ -931,6 +931,25 @@ export class OssmBle implements Disposable {
             KnownPattern.StopNGo
         );
     }
+
+    async patternInsist(
+        speed: number,
+        position: number
+    ): Promise<void> {
+        // Validate settings
+        if (speed < 0 || speed > 100)
+            throw new RangeError("Speed must be between 0 and 100.");
+        if (position < 0 || position > 100)
+            throw new RangeError("Position must be between 0 and 100.");
+
+        await this.sendPatternParameters(
+            speed,
+            100,
+            position,
+            100,
+            KnownPattern.Insist
+        );
+    }
     //#endregion
 
     //#region Debugging tools
