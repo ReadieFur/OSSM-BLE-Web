@@ -98,3 +98,9 @@ export enum OssmMenu {
     /** Return to main menu from either stroke engine or simple penetration */
     Menu = "menu",
 };
+
+export interface OssmPattern {
+    name: string;
+    idx: number;
+    description: string;
+};

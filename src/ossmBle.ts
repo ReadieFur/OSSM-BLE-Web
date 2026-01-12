@@ -2,8 +2,8 @@
 
 import type { ServicesDefinition, UpperSnakeToCamel } from "./helpers";
 import { delay, DOMExceptionError, upperSnakeToCamel } from "./helpers";
-import { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState } from "./ossmBleTypes";
-export * from "./ossmBleTypes"; // Include types in bundled export.
+import { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState, type OssmPattern } from "./ossmBleTypes";
+export { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState, type OssmPattern } from "./ossmBleTypes"; // Include specific types in bundled export.
 
 //#region Constants
 const OSSM_DEVICE_NAME = "OSSM";
@@ -37,6 +37,8 @@ type OSSMServices = {
 };
 //#endregion
 
+// TODO: Process in a queue.
+// TODO: Keep an internal state.
 export class OssmBle implements Disposable {
     //#region Static
     /**
@@ -155,7 +157,7 @@ export class OssmBle implements Disposable {
     private async sendCommand(characteristic: BluetoothRemoteGATTCharacteristic, value: string): Promise<void> {
         this.throwIfNotReady();
 
-        characteristic.writeValue(TEXT_ENCODER.encode(value));
+        await characteristic.writeValue(TEXT_ENCODER.encode(value));
         
         await delay(COMMAND_PROCESS_DELAY_MS); // Give OSSM time to process the command.
         
@@ -300,7 +302,7 @@ export class OssmBle implements Disposable {
      */
     async setSpeedKnobConfig(knobAsLimit: boolean): Promise<void> {
         this.throwIfNotReady();
-        this.ossmServices!.primary.characteristics.speedKnobConfiguration.writeValue(TEXT_ENCODER.encode(knobAsLimit ? "true" : "false"));
+        await this.ossmServices!.primary.characteristics.speedKnobConfiguration.writeValue(TEXT_ENCODER.encode(knobAsLimit ? "true" : "false"));
         await delay(COMMAND_PROCESS_DELAY_MS); // Give OSSM time to process the command.
         if (await this.getSpeedKnobConfig() !== knobAsLimit)
             throw new Error("Failed to set speed knob configuration.");
@@ -316,12 +318,34 @@ export class OssmBle implements Disposable {
         return value === "true";
     }
 
-    async getPatternList(): Promise<void> {
-        throw new Error("Not implemented yet.");
-    }
+    async getPatternList(): Promise<OssmPattern[]> {
+        this.throwIfNotReady();
 
-    async getPatternDescription(patternId: number): Promise<void> {
-        throw new Error("Not implemented yet.");
+        // Query pattern list
+        interface RawPattern {
+            name: string;
+            idx: number;
+        }
+        const patternList = JSON.parse(TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.patternList.readValue()).buffer)) as RawPattern[];
+
+        // Get each pattern's description
+        let patterns: OssmPattern[] = [];
+        for (const rawPattern of patternList) {
+            await this.ossmServices!.primary.characteristics.patternDescription.writeValue(TEXT_ENCODER.encode(`${rawPattern.idx}`));
+
+            await delay(COMMAND_PROCESS_DELAY_MS);
+            
+            const description = TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.patternDescription.readValue()).buffer);
+            if (!description)
+                throw new DOMException(`Failed to get description for pattern ID ${rawPattern.idx}`, DOMExceptionError.DataError);
+            
+            patterns.push({
+                name: rawPattern.name,
+                idx: rawPattern.idx,
+                description: description
+            });
+        }
+        return patterns;
     }
     //#endregion
 
