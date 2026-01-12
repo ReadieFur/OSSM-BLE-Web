@@ -77,10 +77,10 @@ export interface OssmState {
     stroke: number;
     sensation: number;
     depth: number;
-    pattern: KnownPatterns;
+    pattern: KnownPattern;
 };
 
-export enum KnownPatterns {
+export enum KnownPattern {
     SimpleStroke = 0,
     TeasingPounding = 1,
     RoboStroke = 2,
