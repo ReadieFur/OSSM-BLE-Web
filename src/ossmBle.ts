@@ -219,6 +219,30 @@ export class OssmBle implements Disposable {
             callbacks.splice(index, 1);
     }
 
+    async setSpeed(speed: number): Promise<void> {
+        throw new Error("Not implemented yet.");
+    }
+
+    async setStroke(stroke: number): Promise<void> {
+        throw new Error("Not implemented yet.");
+    }
+
+    async setDepth(depth: number): Promise<void> {
+        throw new Error("Not implemented yet.");
+    }
+
+    async setSensation(sensation: number): Promise<void> {
+        throw new Error("Not implemented yet.");
+    }
+
+    async setPattern(patternId: number): Promise<void> {
+        throw new Error("Not implemented yet.");
+    }
+
+    async navigateTo(): Promise<void> {
+        throw new Error("Not implemented yet.");
+    }
+
     /**
      * Configure whether speed knob acts as upper limit for BLE speed commands
      * @param knobAsLimit
@@ -243,6 +267,14 @@ export class OssmBle implements Disposable {
         this.throwIfNotReady();
         const value = TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.speedKnobConfiguration.readValue()).buffer);
         return value === "true";
+    }
+
+    async getPatternList(): Promise<void> {
+        throw new Error("Not implemented yet.");
+    }
+
+    async getPatternDescription(patternId: number): Promise<void> {
+        throw new Error("Not implemented yet.");
     }
     //#endregion
 
