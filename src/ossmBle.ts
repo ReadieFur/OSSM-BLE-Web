@@ -1,13 +1,22 @@
 // Reference: https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/BLE_Protocol.md
 
+//#region Imports
 import type { ServicesDefinition, UpperSnakeToCamel } from "./helpers";
 import { AsyncFunctionQueue, delay, DOMExceptionError, upperSnakeToCamel } from "./helpers";
-import { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState, type OssmPattern } from "./ossmBleTypes";
-export { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState, type OssmPattern } from "./ossmBleTypes"; // Include specific types in bundled export.
+import {
+    OSSM_PAGE_NAVIGATION_GRAPH,
+    OssmPage,
+    OssmEventType,
+    OssmStatus,
+    type OssmEventCallback,
+    type OssmState,
+    type OssmPattern,
+} from "./ossmBleTypes";
+//#endregion
 
 //#region Constants
 const OSSM_DEVICE_NAME = "OSSM";
-const COMMAND_PROCESS_DELAY_MS = 50;
+const BASE_COMMAND_PROCESS_DELAY_MS = 50;
 const DISCONNECT_TIMEOUT_MS = 5000; // Time after which to consider the device disconnected for safety reasons.
 const OSSM_GATT_SERVICES = {
     PRIMARY: {
@@ -68,6 +77,7 @@ export class OssmBle implements Disposable {
     private lastPoll: number = 0;
     private cachedState: OssmState | null = null;
     private cachedPatternList: OssmPattern[] | null = null;
+    commandProcessDelayMs: number = BASE_COMMAND_PROCESS_DELAY_MS;
 
     private constructor(device: BluetoothDevice) {
         this.device = device;
@@ -167,17 +177,22 @@ export class OssmBle implements Disposable {
     private onCurrentStateChanged(event: Event): void {
         this.lastPoll = Date.now();
 
-        const state = JSON.parse(TEXT_DECODER.decode((event.target as BluetoothRemoteGATTCharacteristic).value!)) as OssmState;
+        type JsonState = Omit<OssmState, "status"> & {
+            state: OssmStatus;
+        };
+        const jsonStateObj = JSON.parse(TEXT_DECODER.decode((event.target as BluetoothRemoteGATTCharacteristic).value!)) as JsonState;
+        const { state, ...rest } = jsonStateObj;
+        const remappedStateObj: OssmState = { status: state, ...rest };
         
-        if (this.cachedState && JSON.stringify(this.cachedState) === JSON.stringify(state)) {
+        if (this.cachedState && JSON.stringify(this.cachedState) === JSON.stringify(remappedStateObj)) {
             // No change in state, ignore.
             return;
         }
 
-        this.debugLogTable({ "On state changed": "", ...state });
-        this.cachedState = state;
+        this.debugLogTable({ "On state changed": "", ...remappedStateObj });
+        this.cachedState = remappedStateObj;
 
-        this.dispatchEvent(OssmEventType.StateChanged, state);
+        this.dispatchEvent(OssmEventType.StateChanged, remappedStateObj);
     }
 
     private async sendCommand(value: string): Promise<void> {
@@ -185,7 +200,7 @@ export class OssmBle implements Disposable {
 
         const returnedValue = await this.bleTaskQueue.enqueue(async () => {
             await this.ossmServices!.primary.characteristics.command.writeValue(TEXT_ENCODER.encode(value));
-            await delay(COMMAND_PROCESS_DELAY_MS); // Give OSSM time to process the command.
+            await delay(this.commandProcessDelayMs); // Give OSSM time to process the command.
             return TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.command.readValue()).buffer) as string;
         });
 
@@ -214,21 +229,14 @@ export class OssmBle implements Disposable {
     end(): void {
         this.autoReconnect = false;
         this.bleTaskQueue.clearQueue();
-        if (this.device.gatt?.connected)
-            this.device.gatt.disconnect();
-    }
-
-    /**
-     * Waits until the OssmBle instance is ready for commands
-     * @param timeout Maximum time to wait in milliseconds. Defaults to infinity.
-     */
-    async waitForReady(timeout: number = Number.POSITIVE_INFINITY): Promise<void> {
-        const startTime = Date.now();
-        while (!this.isReady) {
-            if (Date.now() - startTime > timeout)
-                throw new Error("Timeout waiting for ossmBle to be ready.");
-            await delay(100);
-        }
+        const doDisconnect = () => {
+            if (this.device.gatt?.connected)
+                this.device.gatt.disconnect();
+        };
+        if (this.isReady)
+            this.stop().finally(doDisconnect);
+        else
+            doDisconnect();
     }
 
     /**
@@ -256,13 +264,6 @@ export class OssmBle implements Disposable {
             callbacks.splice(index, 1);
     }
 
-    /**
-     * Stops the OSSM device (sets speed to 0)
-     */
-    async stop(): Promise<void> {
-        await this.setSpeed(0);
-    }
-
     //#region Raw commands
     /**
      * Set stroke speed percentage
@@ -273,6 +274,8 @@ export class OssmBle implements Disposable {
     async setSpeed(speed: number): Promise<void> {
         if (speed < 0 || speed > 100)
             throw new RangeError("Speed must be between 0 and 100.");
+        if (this.cachedState?.speed === speed)
+            return;
         await this.sendCommand(`set:speed:${speed}`);
     }
 
@@ -289,6 +292,9 @@ export class OssmBle implements Disposable {
         // For some reason the device will +1 whatever value is set here so we subtract 1 to compensate.
         if (stroke > 0 && stroke < 100)
             stroke -= 1;
+
+        if (this.cachedState?.stroke === stroke)
+            return;
 
         await this.sendCommand(`set:stroke:${stroke}`);
     }
@@ -307,6 +313,9 @@ export class OssmBle implements Disposable {
         if (depth > 0 && depth < 100)
             depth -= 1;
 
+        if (this.cachedState?.depth === depth)
+            return;
+
         await this.sendCommand(`set:depth:${depth}`);
     }
 
@@ -324,6 +333,9 @@ export class OssmBle implements Disposable {
         if (sensation > 0 && sensation < 100)
             sensation -= 1;
 
+        if (this.cachedState?.sensation === sensation)
+            return;
+
         await this.sendCommand(`set:sensation:${sensation}`);
     }
 
@@ -339,27 +351,41 @@ export class OssmBle implements Disposable {
 
     /**
      * Navigate to a specific menu page
-     * @param page One of the {@link OssmMenu} enum values
+     * @param page One of the {@link OssmPage} enum values
      */
-    async navigateTo(page: OssmMenu): Promise<void> {
-        this.throwIfNotReady();
+    async navigateTo(page: OssmPage): Promise<void> {
+        let currentPage = this.getCurrentPage();
 
-        // TODO: Fix this auto-navigation logic.
-        /** Valid navigations:
-         * Menu -> SimplePenetration
-         * Menu -> StrokeEngine
-         * SimplePenetration -> Menu
-         * StrokeEngine -> Menu
-         */
-        // // Split state name at '.' to get base state
-        // const activePage: string = this.cachedState!.state.indexOf('.') !== -1 ? this.cachedState!.state.split('.')[0] : this.cachedState!.state;
-        // if (activePage == page)
-        //     return; // Already on desired page
-        // else if ((activePage == OssmMenu.SimplePenetration || activePage == OssmMenu.StrokeEngine) &&
-        //     page == (OssmMenu.SimplePenetration || OssmMenu.StrokeEngine))
-        //     await this.sendCommand(`go:${OssmMenu.Menu}`); // Navigate back to menu first (required)
+        // Direct navigation
+        if (OSSM_PAGE_NAVIGATION_GRAPH[currentPage].includes(page)) {
+            await this.sendCommand(`go:${page}`);
+            return;
+        }
 
-        await this.sendCommand(`go:${page}`);
+        // Indirect navigation
+        const visited = new Set<OssmPage>([currentPage]);
+        const queue: OssmPage[][] = [[currentPage]];
+        while (queue.length) {
+            const path = queue.shift()!;
+            const node = path[path.length - 1];
+
+            for (const next of OSSM_PAGE_NAVIGATION_GRAPH[node]) {
+                if (visited.has(next))
+                    continue;
+
+                const newPath = [...path, next];
+                if (next === page) {
+                    for (let i = 1; i < newPath.length; i++)
+                        await this.sendCommand(`go:${newPath[i]}`);
+                    return;
+                }
+
+                visited.add(next);
+                queue.push(newPath);
+            }
+        }
+
+        throw new DOMException(`Cannot navigate to page ${page} from current page ${currentPage}.`, DOMExceptionError.InvalidState);
     }
 
     /**
@@ -373,9 +399,9 @@ export class OssmBle implements Disposable {
     async setSpeedKnobConfig(knobAsLimit: boolean): Promise<void> {
         this.throwIfNotReady();
         await this.ossmServices!.primary.characteristics.speedKnobConfiguration.writeValue(TEXT_ENCODER.encode(knobAsLimit ? "true" : "false"));
-        await delay(COMMAND_PROCESS_DELAY_MS); // Give OSSM time to process the command.
+        await delay(this.commandProcessDelayMs); // Give OSSM time to process the command.
         if (await this.getSpeedKnobConfig() !== knobAsLimit)
-            throw new Error("Failed to set speed knob configuration.");
+            throw new DOMException("Failed to set speed knob configuration.", DOMExceptionError.DataError);
     }
 
     /**
@@ -408,7 +434,7 @@ export class OssmBle implements Disposable {
         for (const rawPattern of patternList) {
             const description = await this.bleTaskQueue.enqueue(async () => {
                 await this.ossmServices!.primary.characteristics.patternDescription.writeValue(TEXT_ENCODER.encode(`${rawPattern.idx}`));
-                await delay(COMMAND_PROCESS_DELAY_MS);
+                await delay(this.commandProcessDelayMs);
                 return TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.patternDescription.readValue()).buffer);
             });
             if (!description)
@@ -429,12 +455,54 @@ export class OssmBle implements Disposable {
     }
     //#endregion
 
-    //#region Internal memory getters
+    //#region State caching & helpers
     /**
-     * Gets the last cached OSSM state
-     * @returns An {@link OssmState} object or `null` if no state has been cached yet
+     * Emergency stops the OSSM device  
+     * @remarks This should not be used to stop normal operations, use {@link setSpeed(setSpeed(0))} instead
      */
-    getCachedState(): OssmState | null {
+    async stop(): Promise<void> {
+        // Manually process here as this should be used to emergency stop the device, taking priority over any other tasks.
+        if (!this.isReady)
+            return;
+        this.bleTaskQueue.clearQueue();
+        await this.bleTaskQueue.enqueue(async () => {
+            await this.ossmServices!.primary.characteristics.command.writeValue(TEXT_ENCODER.encode("set:speed:0"));
+            // Possibly check return value?
+        });
+    }
+
+    /**
+     * Gets whether the OSSM device is ready
+     * @returns `true` if ready, `false` if not ready
+     */
+    getIsReady(): boolean {
+        return this.isReady;
+    }
+
+    /**
+     * Waits until the OssmBle instance is ready for commands
+     * @param timeout Maximum time to wait in milliseconds. Defaults to infinity.
+     */
+    async waitForReady(timeout: number = Number.POSITIVE_INFINITY): Promise<void> {
+        const startTime = Date.now();
+        while (!this.isReady) {
+            if (Date.now() - startTime > timeout)
+                throw new DOMException("Timeout waiting for ossmBle to be ready.", DOMExceptionError.Timeout);
+            await delay(100);
+        }
+    }
+
+    /**
+     * Gets the OSSM state
+     * @param timeout Maximum time to wait for a state update in milliseconds. Defaults to infinity.
+     */
+    async getState(timeout: number = Number.POSITIVE_INFINITY): Promise<OssmState> {
+        const startTime = Date.now();
+        while (!this.isReady || !this.cachedState) {
+            if (Date.now() - startTime > timeout)
+                throw new DOMException("Timeout waiting for OSSM state.", DOMExceptionError.Timeout);
+            await delay(100);
+        }
         return this.cachedState;
     }
 
@@ -446,18 +514,45 @@ export class OssmBle implements Disposable {
         return this.cachedPatternList;
     }
 
-    getCurrentMenu(state: OssmState | null = null): OssmMenu | null {
+    /**
+     * Gets the current OSSM page
+     * @param state Optional {@link OssmState} object to use instead of the cached state
+     * @returns One of the {@link OssmPage} enum values
+     * @throws DOMException if no state is available or the state is invalid (e.g. busy doing homing task)
+     */
+    getCurrentPage(state: OssmState | null = null): OssmPage {
         if (!state)
             state = this.cachedState;
         if (!state)
-            return null;
-        const currentMenu = state.state.indexOf('.') !== -1 ? state.state.split('.')[0] : state.state;
-        return currentMenu as OssmMenu;
+            throw new DOMException("No state available to determine current page.", DOMExceptionError.InvalidState);
+        const currentPage = state.status.indexOf('.') !== -1 ? state.status.split('.')[0] : state.status;
+        // Sanity check
+        if (!Object.values(OssmPage).includes(currentPage as OssmPage))
+            throw new DOMException(`Unknown OSSM page: ${currentPage}`, DOMExceptionError.DataError);
+        return currentPage as OssmPage;
+    }
+
+    /**
+     * Waits until the OSSM device reaches the specified status
+     * @param status The desired {@link OssmStatus}
+     * @param timeout Maximum time to wait in milliseconds. Defaults to infinity.
+     * @throws DOMException if timeout is reached before the status is achieved
+     */
+    async waitForStatus(status: OssmStatus | OssmStatus[], timeout: number = Number.POSITIVE_INFINITY): Promise<void> {
+        const startTime = Date.now();
+        while (true) {
+            const currentState = await this.getState(timeout);
+            if (currentState && (Array.isArray(status) ? status.includes(currentState.status) : currentState.status === status))
+                return;
+            if (Date.now() - startTime > timeout)
+                throw new DOMException(`Timeout waiting for OSSM to reach status ${status}.`, DOMExceptionError.Timeout);
+            await delay(100);
+        }
     }
     //#endregion
     //#endregion
 
-    //#region Wrappers
+    //#region Play wrappers
     async strokeEngineSetSimpleStroke(
         speed: number,
         minDepthRelative: number,
@@ -508,8 +603,8 @@ export class OssmBle implements Disposable {
         const newSpeed = speed;
         
         // Get current states
-        const capturedState = this.getCachedState()!; //Should never be null here.
-        const currentMenu = this.getCurrentMenu(capturedState)!;
+        const capturedState = await this.getState();
+        const currentPage = this.getCurrentPage(capturedState)!;
         const oldDepth = capturedState.depth;
         const oldStroke = capturedState.stroke;
         const oldMin = oldDepth - oldStroke;
@@ -525,9 +620,12 @@ export class OssmBle implements Disposable {
             "Max Pos": `${oldMax} -> ${newMax}`,
         });
 
-        // Require that we are already on the StrokeEngine menu
-        if (currentMenu !== OssmMenu.StrokeEngine)
-            throw new DOMException(`Cannot set SimpleStroke settings when not on StrokeEngine menu (currently on ${currentMenu}).`, DOMExceptionError.InvalidState);
+        // We must be on the stoke engine page for this to work
+        if (currentPage !== OssmPage.StrokeEngine) {
+            throw new DOMException("Must be on Stroke Engine page to set simple stroke.", DOMExceptionError.InvalidState);
+            // this.navigateTo(OssmPage.StrokeEngine);
+            // await this.waitForStatus(OssmStatus.StrokeEngineIdle, 5000);
+        }
 
         // Check if any changes are needed
         if (oldSpeed === newSpeed && oldDepth === newDepth && oldStroke === newStroke) {
@@ -535,43 +633,29 @@ export class OssmBle implements Disposable {
             return;
         }
 
-        // Build setters
-        const applySpeed = async () => {
-            if (oldSpeed !== newSpeed)
-                return this.setSpeed(newSpeed);
-        };
-        const applyDepth = async () => {
-            if (oldDepth !== newDepth)
-                return this.setDepth(newDepth);
-        };
-        const applyStroke = async () => {
-            if (oldStroke !== newStroke)
-                return this.setStroke(newStroke);
-        };
-
         // Queue commands
         await this.bleTaskQueue.enqueue(async () => {
             // Queue in a specific order to try and reduce jerkiness (we want to avoid sudden extension with increased speed)
             if (newSpeed < oldSpeed) {
                 // Always safe case (down in speed, range change doesn't matter)
                 this.debugLog("strokeEngineSetSimpleStroke:", "Safe case: Decreasing speed");
-                applySpeed();
-                applyDepth();
-                applyStroke();
+                await this.setSpeed(newSpeed);
+                await this.setDepth(newDepth);
+                await this.setStroke(newStroke);
             } else if (newSpeed > oldSpeed && (newMin < oldMin || newMax > oldMax)) {
                 /* Potentially risky case detected (fast + extended motion)
                  * To mitigate risk, we first apply depth/stroke changes at old speed, then increase speed.
                  */
                 this.debugLog("strokeEngineSetSimpleStroke:", "Risky case: Increasing speed with extended range");
-                applyDepth();
-                applyStroke();
-                applySpeed();
+                await this.setDepth(newDepth);
+                await this.setStroke(newStroke);
+                await this.setSpeed(newSpeed);
             } else {
                 // Neutral case.
                 this.debugLog("strokeEngineSetSimpleStroke:", "Neutral case");
-                applyDepth();
-                applyStroke();
-                applySpeed();
+                await this.setDepth(newDepth);
+                await this.setStroke(newStroke);
+                await this.setSpeed(newSpeed);
             }
         });
     }
@@ -601,3 +685,15 @@ export class OssmBle implements Disposable {
     }
     //#endregion
 }
+
+//#region Additional exports (for bundled output)
+// export { OssmBle };
+export {
+    OssmPage,
+    OssmEventType,
+    OssmStatus,
+    type OssmEventCallback,
+    type OssmState,
+    type OssmPattern,
+} from "./ossmBleTypes";
+//#endregion

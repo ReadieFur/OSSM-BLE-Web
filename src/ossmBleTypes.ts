@@ -18,7 +18,7 @@ export enum OssmEventType {
 
 export type OssmEventCallback = (data: null | OssmState) => Promise<any> | any;
 
-export enum OssmStateName {
+export enum OssmStatus {
     /** Initializing */
     Idle = "idle",
     /** Homing sequence active */
@@ -32,47 +32,47 @@ export enum OssmStateName {
     /** Menu idle state */
     MenuIdle = "menu.idle",
     /** Simple penetration mode */
-    simplePenetration = "simple.penetration",
+    SimplePenetration = "simple.penetration",
     /** Simple penetration idle */
-    simplePenetrationIdle = "simple.penetration.idle",
+    SimplePenetrationIdle = "simple.penetration.idle",
     /** Pre-flight checks */
-    simplePenetrationPreflight = "simple.penetration.preflight",
+    SimplePenetrationPreflight = "simple.penetration.preflight",
     /** Stroke engine mode */
-    strokeEngine = "strokeEngine",
+    StrokeEngine = "strokeEngine",
     /** Stroke engine idle */
-    strokeEngineIdle = "strokeEngine.idle",
+    StrokeEngineIdle = "strokeEngine.idle",
     /** Pre-flight checks */
-    strokeEnginePreflight = "strokeEngine.preflight",
+    StrokeEnginePreflight = "strokeEngine.preflight",
     /** Pattern selection */
-    strokeEnginePattern = "strokeEngine.pattern",
+    StrokeEnginePattern = "strokeEngine.pattern",
     /** Update mode */
-    update = "update",
+    Update = "update",
     /** Checking for updates */
-    updateChecking = "update.checking",
+    UpdateChecking = "update.checking",
     /** Update in progress */
-    updateUpdating = "update.updating",
+    UpdateUpdating = "update.updating",
     /** Update idle */
-    updateIdle = "update.idle",
+    UpdateIdle = "update.idle",
     /** WiFi setup mode */
-    wifi = "wifi",
+    Wifi = "wifi",
     /** WiFi setup idle */
-    wifiIdle = "wifi.idle",
+    WifiIdle = "wifi.idle",
     /** Help screen */
-    help = "help",
+    Help = "help",
     /** Help idle */
-    helpIdle = "help.idle",
+    HelpIdle = "help.idle",
     /** Error state */
-    error = "error",
+    Error = "error",
     /** Error idle */
-    errorIdle = "error.idle",
+    ErrorIdle = "error.idle",
     /** Error help */
-    errorHelp = "error.help",
+    ErrorHelp = "error.help",
     /** Restart state */
-    restart = "restart",
+    Restart = "restart",
 }
 
 export interface OssmState {
-    state: OssmStateName;
+    status: OssmStatus;
     speed: number;
     stroke: number;
     sensation: number;
@@ -90,13 +90,20 @@ export enum KnownPatterns {
     Insist = 6,
 };
 
-export enum OssmMenu {
-    /** Switch to simple penetration mode from the menu */
+export enum OssmPage {
+    /** Switch to simple penetration mode */
     SimplePenetration = "simplePenetration",
-    /** Switch to stroke engine mode from the menu */
+    /** Switch to stroke engine mode */
     StrokeEngine = "strokeEngine",
-    /** Return to main menu from either stroke engine or simple penetration */
+    /** Return to main menu */
     Menu = "menu",
+};
+
+// Certain pages can only navigate to specific other pages, so we create a graph which we can traverse.
+export const OSSM_PAGE_NAVIGATION_GRAPH: Record<OssmPage, OssmPage[]> = {
+    [OssmPage.Menu]: [OssmPage.SimplePenetration, OssmPage.StrokeEngine],
+    [OssmPage.SimplePenetration]: [OssmPage.Menu],
+    [OssmPage.StrokeEngine]: [OssmPage.Menu],
 };
 
 export interface OssmPattern {
