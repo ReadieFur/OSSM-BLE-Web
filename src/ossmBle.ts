@@ -793,6 +793,144 @@ export class OssmBle implements Disposable {
             KnownPattern.RoboStroke
         );
     }
+
+    /**
+     * Full and half depth strokes alternate.
+     * @param minDepth the minimum depth percentage (0-100)
+     * @param maxDepth the maximum depth percentage (0-100)
+     * @param speed the speed percentage (0-100)
+     * @param intensity how pronounced the half/full depth effect is (0-100)
+     */
+    async patternHalfNHalf(
+        minDepth: number,
+        maxDepth: number,
+        speed: number,
+        intensity: number,
+        fastOnRetract: boolean = false
+    ): Promise<void> {
+        // Validate settings
+        if (minDepth < 0 || minDepth > 100)
+            throw new RangeError("minDepthAbsolute must be between 0 and 100.");
+        if (maxDepth < 0 || maxDepth > 100)
+            throw new RangeError("maxDepthAbsolute must be between 0 and 100.");
+        if (minDepth >= maxDepth)
+            throw new RangeError("minDepthAbsolute must be less than maxDepthAbsolute.");
+        if (speed < 0 || speed > 100)
+            throw new RangeError("Speed must be between 0 and 100.");
+        if (intensity < 0 || intensity > 100)
+            throw new RangeError("Intensity must be between 0 and 100.");
+
+        // Calculate command values
+        const newDepth = maxDepth;
+        const newStroke = maxDepth - minDepth;
+        const newSpeed = speed;
+        // Divide by 2 here since we don't want the added granularity from converting a 0-100 scale to 0-50/50-100 scale
+        const sensation = fastOnRetract
+            ? 50 - Math.round(intensity / 2)
+            : 50 + Math.round(intensity / 2);
+
+        await this.sendPatternParameters(
+            newSpeed,
+            newStroke,
+            newDepth,
+            sensation,
+            KnownPattern.HalfNHalf
+        );
+    }
+
+    /**
+     * Gradually deepens the stroke over a set number of cycles
+     * @param minDepth the minimum depth percentage (0-100)
+     * @param maxDepth the maximum depth percentage (0-100)
+     * @param speed the speed percentage (0-100)
+     * @param cycleMultiplier number of cycles to deepen over (0-100)
+     */
+    async patternDeeper(
+        minDepth: number,
+        maxDepth: number,
+        speed: number,
+        cycleMultiplier: number
+    ): Promise<void> {
+        /* StrokeEngine.RoboStroke command format:
+         * Similar to SimpleStroke but with adjustable motion profile.
+         *
+         * - Cycle multiplier:
+         *   Controls how many times the stroke deepens before resetting.
+         */
+
+        // Validate settings
+        if (minDepth < 0 || minDepth > 100)
+            throw new RangeError("minDepthAbsolute must be between 0 and 100.");
+        if (maxDepth < 0 || maxDepth > 100)
+            throw new RangeError("maxDepthAbsolute must be between 0 and 100.");
+        if (minDepth >= maxDepth)
+            throw new RangeError("minDepthAbsolute must be less than maxDepthAbsolute.");
+        if (speed < 0 || speed > 100)
+            throw new RangeError("Speed must be between 0 and 100.");
+        if (cycleMultiplier < 0 || cycleMultiplier > 100)
+            throw new RangeError("Cycle count must be between 0 and 100.");
+
+        // Calculate command values
+        const newDepth = maxDepth;
+        const newStroke = maxDepth - minDepth;
+        const newSpeed = speed;
+        const newSensation = cycleMultiplier;
+
+        await this.sendPatternParameters(
+            newSpeed,
+            newStroke,
+            newDepth,
+            newSensation,
+            KnownPattern.Deeper
+        );
+    }
+
+    /**
+     * Pauses between strokes
+     * @param minDepth the minimum depth percentage (0-100)
+     * @param maxDepth the maximum depth percentage (0-100)
+     * @param speed the speed percentage (0-100)
+     * @param pauseDurationMultiplier number of cycles to pause over (0-100)
+     */
+    async patternStopNGo(
+        minDepth: number,
+        maxDepth: number,
+        speed: number,
+        pauseDurationMultiplier: number
+    ): Promise<void> {
+        /* StrokeEngine.RoboStroke command format:
+         * Similar to SimpleStroke but with adjustable motion profile.
+         *
+         * - Pause duration multiplier:
+         *   Controls how long the device pauses between strokes.
+         */
+
+        // Validate settings
+        if (minDepth < 0 || minDepth > 100)
+            throw new RangeError("minDepthAbsolute must be between 0 and 100.");
+        if (maxDepth < 0 || maxDepth > 100)
+            throw new RangeError("maxDepthAbsolute must be between 0 and 100.");
+        if (minDepth >= maxDepth)
+            throw new RangeError("minDepthAbsolute must be less than maxDepthAbsolute.");
+        if (speed < 0 || speed > 100)
+            throw new RangeError("Speed must be between 0 and 100.");
+        if (pauseDurationMultiplier < 0 || pauseDurationMultiplier > 100)
+            throw new RangeError("Cycle count must be between 0 and 100.");
+
+        // Calculate command values
+        const newDepth = maxDepth;
+        const newStroke = maxDepth - minDepth;
+        const newSpeed = speed;
+        const newSensation = pauseDurationMultiplier;
+
+        await this.sendPatternParameters(
+            newSpeed,
+            newStroke,
+            newDepth,
+            newSensation,
+            KnownPattern.StopNGo
+        );
+    }
     //#endregion
 
     //#region Debugging tools
