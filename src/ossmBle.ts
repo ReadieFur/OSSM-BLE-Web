@@ -1,7 +1,7 @@
 // Reference: https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/BLE_Protocol.md
 
-import type { ServicesDefinition } from "./helpers";
-import { delay, DOMExceptionError } from "./helpers";
+import type { ServicesDefinition, UpperSnakeToCamel } from "./helpers";
+import { delay, DOMExceptionError, upperSnakeToCamel } from "./helpers";
 
 //#region Constants
 const OSSM_GATT_SERVICES = {
@@ -13,13 +13,6 @@ const OSSM_GATT_SERVICES = {
             PATTERN_LIST: '522b443a-4f53-534d-3000-420badbabe69',
             PATTERN_DESCRIPTION: '522b443a-4f53-534d-3010-420badbabe69',
         }
-    },
-    DEVICE_INFORMATION: {
-        uuid: '180a',
-        characteristics: {
-            MANUFACTURER_NAME: '2a29',
-            SYSTEM_ID: '2a23',
-        }
     }
 } as const satisfies ServicesDefinition;
 
@@ -28,6 +21,19 @@ const COMMAND_PROCESS_DELAY_MS = 50;
 
 const TEXT_DECODER = new TextDecoder();
 const TEXT_ENCODER = new TextEncoder();
+//#endregion
+
+//#region Types & Interfaces
+// Auto-generate a clean structure to store the GATT services based on the above definition (voodoo magic shit).
+type OSSMServices = {
+    // https://stackoverflow.com/questions/42999983/typescript-removing-readonly-modifier
+    -readonly [svc in keyof typeof OSSM_GATT_SERVICES as UpperSnakeToCamel<string & svc>]: {
+        service: BluetoothRemoteGATTService;
+        characteristics: {
+            -readonly [char in keyof typeof OSSM_GATT_SERVICES[svc]["characteristics"] as UpperSnakeToCamel<string & char>]: BluetoothRemoteGATTCharacteristic;
+        }
+    }
+};
 //#endregion
 
 export class OssmBle implements Disposable {
@@ -54,11 +60,7 @@ export class OssmBle implements Disposable {
     private autoReconnect: boolean = true;
     private isReady: boolean = false;
 
-    private primaryService: BluetoothRemoteGATTService | null = null;
-    private speedKnobConfigCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
-    private currentStateCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
-    private patternListCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
-    private patternDescriptionCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
+    private ossmServices: OSSMServices | null = null;
 
     private constructor(device: BluetoothDevice) {
         this.device = device;
@@ -86,13 +88,21 @@ export class OssmBle implements Disposable {
          * I'm not sure what causes this, but my auto-reconnect logic should be able to handle it.
          * Apparently this is a known issue with web bluetooth.
          */
-        this.primaryService = await gattSnapshot.getPrimaryService(OSSM_GATT_SERVICES.PRIMARY.uuid);
-        this.speedKnobConfigCharacteristic = await this.primaryService.getCharacteristic(OSSM_GATT_SERVICES.PRIMARY.characteristics.SPEED_KNOB_CONFIGURATION);
-        this.currentStateCharacteristic = await this.primaryService.getCharacteristic(OSSM_GATT_SERVICES.PRIMARY.characteristics.CURRENT_STATE);
-        this.patternListCharacteristic = await this.primaryService.getCharacteristic(OSSM_GATT_SERVICES.PRIMARY.characteristics.PATTERN_LIST);
-        this.patternDescriptionCharacteristic = await this.primaryService.getCharacteristic(OSSM_GATT_SERVICES.PRIMARY.characteristics.PATTERN_DESCRIPTION);
-        this.currentStateCharacteristic.addEventListener("characteristicvaluechanged", this.onCurrentStateChanged.bind(this));
-        await this.currentStateCharacteristic.startNotifications();
+        this.ossmServices = {} as OSSMServices;
+        for (const svcKey in OSSM_GATT_SERVICES) {
+            const svc = OSSM_GATT_SERVICES[svcKey as keyof typeof OSSM_GATT_SERVICES];
+            const service = await gattSnapshot.getPrimaryService(svc.uuid);
+            const characteristics: Record<string, BluetoothRemoteGATTCharacteristic> = {};
+            for (const charKey in svc.characteristics) {
+                const charUuid = svc.characteristics[charKey as keyof typeof svc.characteristics];
+                characteristics[upperSnakeToCamel(charKey)] = await service.getCharacteristic(charUuid);
+            }
+            //Given I know what the data layout is here, this will work but is not the right solution.
+            this.ossmServices[upperSnakeToCamel(svcKey) as keyof OSSMServices] = { service, characteristics } as any;
+        }
+
+        this.ossmServices.primary.characteristics.currentState.addEventListener("characteristicvaluechanged", this.onCurrentStateChanged.bind(this));
+        await this.ossmServices.primary.characteristics.currentState.startNotifications();
 
         this.debugLog("Connected");
         this.isReady = true;
@@ -183,7 +193,7 @@ export class OssmBle implements Disposable {
      */
     async setSpeedKnobConfig(knobAsLimit: boolean): Promise<void> {
         this.throwIfNotReady();
-        await this.speedKnobConfigCharacteristic?.writeValue(TEXT_ENCODER.encode(knobAsLimit ? "true" : "false"));
+        this.ossmServices!.primary.characteristics.speedKnobConfiguration.writeValue(TEXT_ENCODER.encode(knobAsLimit ? "true" : "false"));
         await delay(COMMAND_PROCESS_DELAY_MS); // Give OSSM time to process the command.
         if (await this.getSpeedKnobConfig() !== knobAsLimit)
             throw new Error("Failed to set speed knob configuration.");
@@ -195,7 +205,7 @@ export class OssmBle implements Disposable {
      */
     async getSpeedKnobConfig(): Promise<boolean> {
         this.throwIfNotReady();
-        const value = TEXT_DECODER.decode((await this.speedKnobConfigCharacteristic!.readValue()).buffer);
+        const value = TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.speedKnobConfiguration.readValue()).buffer);
         return value === "true";
     }
     //#endregion
