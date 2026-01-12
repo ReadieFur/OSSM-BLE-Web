@@ -288,9 +288,11 @@ export class OssmBle implements Disposable {
 
     /**
      * Set stroke pattern (see {@link getPatternList} for available patterns)
-     * @param patternId A {@link number} corresponding to a pattern ID
+     * @param patternId A {@link number} corresponding to a pattern ID (see {@link KnownPatterns})
      */
     async setPattern(patternId: number): Promise<void> {
+        if (patternId < 0)
+            throw new RangeError("Pattern ID must be a non-negative integer.");
         this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:pattern:${patternId}`);
     }
 

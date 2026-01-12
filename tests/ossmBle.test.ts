@@ -201,6 +201,109 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 		});
 	});
 
+	test("setSpeed", async () => {
+		await createOssmBleInstance(page);
+		await pageEvaluate(page, async () => {
+			window.ossmBleInstance!.begin();
+			await window.ossmBleInstance!.waitForReady();
+			await window.ossmBleInstance!.setSpeed(0);
+			await window.ossmBleInstance!.setSpeed(50);
+			await window.ossmBleInstance!.setSpeed(100);
+		});
+		try {
+			await pageEvaluate(page, async () => {
+				await window.ossmBleInstance!.setSpeed(150);
+			});
+			throw new Error("setSpeed did not throw for invalid value");
+		}
+		catch (error) {
+			// Pass
+		}
+	});
+
+	test("setStroke", async () => {
+		await createOssmBleInstance(page);
+		await pageEvaluate(page, async () => {
+			window.ossmBleInstance!.begin();
+			await window.ossmBleInstance!.waitForReady();
+			await window.ossmBleInstance!.setStroke(0);
+			await window.ossmBleInstance!.setStroke(50);
+			await window.ossmBleInstance!.setStroke(100);
+		});
+		try {
+			await pageEvaluate(page, async () => {
+				await window.ossmBleInstance!.setStroke(150);
+			});
+			throw new Error("setStroke did not throw for invalid value");
+		}
+		catch (error) {
+			// Pass
+		}
+	});
+
+	test("setDepth", async () => {
+		await createOssmBleInstance(page);
+		await pageEvaluate(page, async () => {
+			window.ossmBleInstance!.begin();
+			await window.ossmBleInstance!.waitForReady();
+			await window.ossmBleInstance!.setDepth(0);
+			await window.ossmBleInstance!.setDepth(50);
+			await window.ossmBleInstance!.setDepth(100);
+		});
+		try {
+			await pageEvaluate(page, async () => {
+				await window.ossmBleInstance!.setDepth(150);
+			});
+			throw new Error("setDepth did not throw for invalid value");
+		}
+		catch (error) {
+			// Pass
+		}
+	});
+
+	test("setSensation", async () => {
+		await createOssmBleInstance(page);
+		await pageEvaluate(page, async () => {
+			window.ossmBleInstance!.begin();
+			await window.ossmBleInstance!.waitForReady();
+			await window.ossmBleInstance!.setSensation(0);
+			await window.ossmBleInstance!.setSensation(50);
+			await window.ossmBleInstance!.setSensation(100);
+		});
+		try {
+			await pageEvaluate(page, async () => {
+				await window.ossmBleInstance!.setSensation(150);
+			});
+			throw new Error("setSensation did not throw for invalid value");
+		}
+		catch (error) {
+			// Pass
+		}
+	});
+
+	test("setPattern", async () => {
+		await createOssmBleInstance(page);
+		await pageEvaluate(page, async () => {
+			window.ossmBleInstance!.begin();
+			await window.ossmBleInstance!.waitForReady();
+			await window.ossmBleInstance!.setPattern(0);
+		});
+		try {
+			await pageEvaluate(page, async () => {
+				await window.ossmBleInstance!.setPattern(-1);
+			});
+			throw new Error("setPattern did not throw for invalid value");
+		}
+		catch (error) {
+			// Pass
+		}
+	});
+
+	test.skip("navigateTo", async () => {
+		// Depends on having the split runtime working, (not implemented yet).
+		throw new Error("Not implemented");
+	});
+
 	test("setSpeedKnobConfig", async () => {
 		await createOssmBleInstance(page);
 		await pageEvaluate(page, async () => {
