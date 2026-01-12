@@ -164,7 +164,10 @@ export class OssmBle implements Disposable {
             return;
         }
 
-        this.debugLog("onCurrentStateChanged:", state);
+        if (this.debug) {
+            this.debugLog("onCurrentStateChanged:");
+            console.table(state);
+        }
         this.cachedState = state;
 
         this.dispatchEvent(OssmEventType.StateChanged, state);
