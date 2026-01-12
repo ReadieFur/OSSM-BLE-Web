@@ -77,7 +77,7 @@ export interface OssmState {
     stroke: number;
     sensation: number;
     depth: number;
-    pattern: number;
+    pattern: KnownPatterns;
 };
 
 export enum KnownPatterns {

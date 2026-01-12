@@ -11,6 +11,7 @@ import {
     type OssmEventCallback,
     type OssmState,
     type OssmPattern,
+    KnownPatterns,
 } from "./ossmBleTypes";
 //#endregion
 
@@ -189,7 +190,10 @@ export class OssmBle implements Disposable {
             return;
         }
 
-        this.debugLogTable({ "On state changed": "", ...remappedStateObj });
+        this.debugLogTable({
+            "New state": remappedStateObj,
+            "Old state": this.cachedState
+        });
         this.cachedState = remappedStateObj;
 
         this.dispatchEvent(OssmEventType.StateChanged, remappedStateObj);
@@ -274,8 +278,10 @@ export class OssmBle implements Disposable {
     async setSpeed(speed: number): Promise<void> {
         if (speed < 0 || speed > 100)
             throw new RangeError("Speed must be between 0 and 100.");
+
         if (this.cachedState?.speed === speed)
             return;
+
         await this.sendCommand(`set:speed:${speed}`);
     }
 
@@ -289,12 +295,12 @@ export class OssmBle implements Disposable {
         if (stroke < 0 || stroke > 100)
             throw new RangeError("Stroke must be between 0 and 100.");
 
+        if (this.cachedState?.stroke === stroke)
+            return;
+
         // For some reason the device will +1 whatever value is set here so we subtract 1 to compensate.
         if (stroke > 0 && stroke < 100)
             stroke -= 1;
-
-        if (this.cachedState?.stroke === stroke)
-            return;
 
         await this.sendCommand(`set:stroke:${stroke}`);
     }
@@ -309,12 +315,12 @@ export class OssmBle implements Disposable {
         if (depth < 0 || depth > 100)
             throw new RangeError("Depth must be between 0 and 100.");
 
+        if (this.cachedState?.depth === depth)
+            return;
+
         // Same +1 quirk as stroke (see {@link setStroke})
         if (depth > 0 && depth < 100)
             depth -= 1;
-
-        if (this.cachedState?.depth === depth)
-            return;
 
         await this.sendCommand(`set:depth:${depth}`);
     }
@@ -329,12 +335,12 @@ export class OssmBle implements Disposable {
         if (sensation < 0 || sensation > 100)
             throw new RangeError("Sensation must be between 0 and 100.");
 
+        if (this.cachedState?.sensation === sensation)
+            return;
+
         // Same +1 quirk as stroke (see {@link setStroke})
         if (sensation > 0 && sensation < 100)
             sensation -= 1;
-
-        if (this.cachedState?.sensation === sensation)
-            return;
 
         await this.sendCommand(`set:sensation:${sensation}`);
     }
@@ -343,7 +349,7 @@ export class OssmBle implements Disposable {
      * Set stroke pattern (see {@link getPatternList} for available patterns)
      * @param patternId A {@link number} corresponding to a pattern ID (see {@link KnownPatterns})
      */
-    async setPattern(patternId: number): Promise<void> {
+    async setPattern(patternId: KnownPatterns): Promise<void> {
         if (patternId < 0)
             throw new RangeError("Pattern ID must be a non-negative integer.");
         await this.sendCommand(`set:pattern:${patternId}`);
@@ -355,6 +361,10 @@ export class OssmBle implements Disposable {
      */
     async navigateTo(page: OssmPage): Promise<void> {
         let currentPage = this.getCurrentPage();
+
+        // Already on desired page
+        if (currentPage === page)
+            return;
 
         // Direct navigation
         if (OSSM_PAGE_NAVIGATION_GRAPH[currentPage].includes(page)) {
@@ -451,6 +461,7 @@ export class OssmBle implements Disposable {
         this.debugLog("Fetched pattern list:");
         this.debugLogTable(patternList);
 
+        this.cachedPatternList = patterns;
         return patterns;
     }
     //#endregion
@@ -555,28 +566,9 @@ export class OssmBle implements Disposable {
     //#region Play wrappers
     async strokeEngineSetSimpleStroke(
         speed: number,
-        minDepthRelative: number,
-        maxDepthRelative: number,
-        minDepthAbsolute: number,
-        maxDepthAbsolute: number
+        minDepth: number,
+        maxDepth: number
     ): Promise<void> {
-        // Validate settings
-        if (speed < 0 || speed > 100)
-            throw new RangeError("Speed must be between 0 and 100.");
-        if (minDepthRelative < 0 || minDepthRelative > 100)
-            throw new RangeError("minDepthRelative must be between 0 and 100.");
-        if (maxDepthRelative < 0 || maxDepthRelative > 100)
-            throw new RangeError("maxDepthRelative must be between 0 and 100.");
-        if (minDepthRelative >= maxDepthRelative)
-            throw new RangeError("minDepthRelative must be less than maxDepthRelative.");
-        if (minDepthAbsolute < 0 || minDepthAbsolute > 100)
-            throw new RangeError("minDepthAbsolute must be between 0 and 100.");
-        if (maxDepthAbsolute < 0 || maxDepthAbsolute > 100)
-            throw new RangeError("maxDepthAbsolute must be between 0 and 100.");
-        if (minDepthAbsolute >= maxDepthAbsolute)
-            throw new RangeError("minDepthAbsolute must be less than maxDepthAbsolute.");
-
-        // Calculate command values
         /* StrokeEngine.SimpleStroke command format:
          *
          * - Depth:
@@ -593,18 +585,28 @@ export class OssmBle implements Disposable {
          * - Motion always occurs backwards from depth (unless dip-switch 6 is set to invert motion).
          * - Stroke is a retraction distance, not a centered range.
          */
-        const range = maxDepthAbsolute - minDepthAbsolute;
-        const minPos = minDepthAbsolute + (minDepthRelative / 100) * range;
-        const maxPos = minDepthAbsolute + (maxDepthRelative / 100) * range;
-        const newDepth = maxPos;
-        const newStroke = maxPos - minPos;
-        const newMin = minPos;
-        const newMax = newDepth;
+
+        // Validate settings
+        if (speed < 0 || speed > 100)
+            throw new RangeError("Speed must be between 0 and 100.");
+        if (minDepth < 0 || minDepth > 100)
+            throw new RangeError("minDepthAbsolute must be between 0 and 100.");
+        if (maxDepth < 0 || maxDepth > 100)
+            throw new RangeError("maxDepthAbsolute must be between 0 and 100.");
+        if (minDepth >= maxDepth)
+            throw new RangeError("minDepthAbsolute must be less than maxDepthAbsolute.");
+
+        // Calculate command values
+        const newDepth  = maxDepth;
+        const newStroke = maxDepth - minDepth;
         const newSpeed = speed;
+        const newMin = minDepth;
+        const newMax = maxDepth;
         
         // Get current states
         const capturedState = await this.getState();
         const currentPage = this.getCurrentPage(capturedState)!;
+        const currentPattern = capturedState.pattern;
         const oldDepth = capturedState.depth;
         const oldStroke = capturedState.stroke;
         const oldMin = oldDepth - oldStroke;
@@ -614,10 +616,10 @@ export class OssmBle implements Disposable {
         this.debugLogTable({
             "Stroke engine: Set simple stroke": "",
             "Speed": `${oldSpeed} -> ${newSpeed}`,
-            "Depth": `${oldDepth} -> ${newDepth}`,
-            "Stroke": `${oldStroke} -> ${newStroke}`,
             "Min Pos": `${oldMin} -> ${newMin}`,
             "Max Pos": `${oldMax} -> ${newMax}`,
+            "Depth": `${oldDepth} -> ${newDepth}`,
+            "Stroke": `${oldStroke} -> ${newStroke}`,
         });
 
         // We must be on the stoke engine page for this to work
@@ -627,37 +629,32 @@ export class OssmBle implements Disposable {
             // await this.waitForStatus(OssmStatus.StrokeEngineIdle, 5000);
         }
 
-        // Check if any changes are needed
-        if (oldSpeed === newSpeed && oldDepth === newDepth && oldStroke === newStroke) {
-            this.debugLog("strokeEngineSetSimpleStroke:", "No changes needed.");
-            return;
-        }
+        // Check if we are on the correct pattern
+        if (currentPattern !== KnownPatterns.SimpleStroke)
+            await this.setPattern(KnownPatterns.SimpleStroke);
 
-        // Queue commands
-        await this.bleTaskQueue.enqueue(async () => {
-            // Queue in a specific order to try and reduce jerkiness (we want to avoid sudden extension with increased speed)
-            if (newSpeed < oldSpeed) {
-                // Always safe case (down in speed, range change doesn't matter)
-                this.debugLog("strokeEngineSetSimpleStroke:", "Safe case: Decreasing speed");
-                await this.setSpeed(newSpeed);
-                await this.setDepth(newDepth);
-                await this.setStroke(newStroke);
-            } else if (newSpeed > oldSpeed && (newMin < oldMin || newMax > oldMax)) {
-                /* Potentially risky case detected (fast + extended motion)
-                 * To mitigate risk, we first apply depth/stroke changes at old speed, then increase speed.
-                 */
-                this.debugLog("strokeEngineSetSimpleStroke:", "Risky case: Increasing speed with extended range");
-                await this.setDepth(newDepth);
-                await this.setStroke(newStroke);
-                await this.setSpeed(newSpeed);
-            } else {
-                // Neutral case.
-                this.debugLog("strokeEngineSetSimpleStroke:", "Neutral case");
-                await this.setDepth(newDepth);
-                await this.setStroke(newStroke);
-                await this.setSpeed(newSpeed);
-            }
-        });
+        // Queue in a specific order to try and reduce jerkiness (we want to avoid sudden extension with increased speed)
+        if (newSpeed < oldSpeed) {
+            // Always safe case (down in speed, range change doesn't matter)
+            this.debugLog("strokeEngineSetSimpleStroke:", "Safe case: Decreasing speed");
+            await this.setSpeed(newSpeed);
+            await this.setDepth(newDepth);
+            await this.setStroke(newStroke);
+        } else if (newSpeed > oldSpeed && (newMin < oldMin || newMax > oldMax)) {
+            /* Potentially risky case detected (fast + extended motion)
+             * To mitigate risk, we first apply depth/stroke changes at old speed, then increase speed.
+             */
+            this.debugLog("strokeEngineSetSimpleStroke:", "Risky case: Increasing speed with extended range");
+            await this.setDepth(newDepth);
+            await this.setStroke(newStroke);
+            await this.setSpeed(newSpeed);
+        } else {
+            // Neutral case.
+            this.debugLog("strokeEngineSetSimpleStroke:", "Neutral case");
+            await this.setDepth(newDepth);
+            await this.setStroke(newStroke);
+            await this.setSpeed(newSpeed);
+        }
     }
     //#endregion
 
@@ -692,6 +689,7 @@ export {
     OssmPage,
     OssmEventType,
     OssmStatus,
+    KnownPatterns,
     type OssmEventCallback,
     type OssmState,
     type OssmPattern,
