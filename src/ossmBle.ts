@@ -7,11 +7,12 @@ export { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState, type O
 
 //#region Constants
 const OSSM_DEVICE_NAME = "OSSM";
-const COMMAND_PROCESS_DELAY_MS = 50;
+const COMMAND_PROCESS_DELAY_MS = 25;
 const OSSM_GATT_SERVICES = {
     PRIMARY: {
         uuid: '522b443a-4f53-534d-0001-420badbabe69',
         characteristics: {
+            COMMAND: '522b443a-4f53-534d-1000-420badbabe69',
             SPEED_KNOB_CONFIGURATION: '522b443a-4f53-534d-1010-420badbabe69',
             CURRENT_STATE: '522b443a-4f53-534d-2000-420badbabe69',
             PATTERN_LIST: '522b443a-4f53-534d-3000-420badbabe69',
@@ -80,7 +81,7 @@ export class OssmBle implements Disposable {
     //#endregion
 
     //#region Instance methods (private)
-    private async dispatchEvent(eventType: OssmEventType, data: null): Promise<void> {
+    private async dispatchEvent(eventType: OssmEventType, data: null | OssmState): Promise<void> {
         const callbacks = this.eventCallbacks.get(eventType);
         if (callbacks)
             for (const callback of callbacks)
@@ -157,23 +158,30 @@ export class OssmBle implements Disposable {
 
     private onCurrentStateChanged(event: Event): void {
         const state = JSON.parse(TEXT_DECODER.decode((event.target as BluetoothRemoteGATTCharacteristic).value!)) as OssmState;
+        
+        if (this.cachedState && JSON.stringify(this.cachedState) === JSON.stringify(state)) {
+            // No change in state; ignore.
+            return;
+        }
+
         this.debugLog("onCurrentStateChanged:", state);
         this.cachedState = state;
-        this.dispatchEvent(OssmEventType.StateChanged, null);
+
+        this.dispatchEvent(OssmEventType.StateChanged, state);
     }
 
-    private async sendCommand(characteristic: BluetoothRemoteGATTCharacteristic, value: string): Promise<void> {
+    private async sendCommand(value: string): Promise<void> {
         this.throwIfNotReady();
 
         const returnedValue = await this.bleTaskQueue.enqueue(async () => {
-            await characteristic.writeValue(TEXT_ENCODER.encode(value));
+            await this.ossmServices!.primary.characteristics.command.writeValue(TEXT_ENCODER.encode(value));
             await delay(COMMAND_PROCESS_DELAY_MS); // Give OSSM time to process the command.
-            return TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.speedKnobConfiguration.readValue()).buffer) as string;
+            return TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.command.readValue()).buffer) as string;
         });
 
         if (returnedValue === `fail:${value}`) {
             throw new DOMException(`OSSM failed to process command: ${value}`, DOMExceptionError.OperationError);
-        } else if (returnedValue !== `ok:${value}`) {
+        } else if (returnedValue !== `${value}`) {
             throw new DOMException(`OSSM returned unexpected response for command "${value}": ${returnedValue}`, DOMExceptionError.DataError);
         }
     }
@@ -247,7 +255,7 @@ export class OssmBle implements Disposable {
     async setSpeed(speed: number): Promise<void> {
         if (speed < 0 || speed > 100)
             throw new RangeError("Speed must be between 0 and 100.");
-        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:speed:${speed}`);
+        await this.sendCommand(`set:speed:${speed}`);
     }
 
     /**
@@ -259,7 +267,7 @@ export class OssmBle implements Disposable {
     async setStroke(stroke: number): Promise<void> {
         if (stroke < 0 || stroke > 100)
             throw new RangeError("Stroke must be between 0 and 100.");
-        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:stroke:${stroke}`);
+        await this.sendCommand(`set:stroke:${stroke}`);
     }
 
     /**
@@ -271,7 +279,7 @@ export class OssmBle implements Disposable {
     async setDepth(depth: number): Promise<void> {
         if (depth < 0 || depth > 100)
             throw new RangeError("Depth must be between 0 and 100.");
-        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:depth:${depth}`);
+        await this.sendCommand(`set:depth:${depth}`);
     }
 
     /**
@@ -283,7 +291,7 @@ export class OssmBle implements Disposable {
     async setSensation(sensation: number): Promise<void> {
         if (sensation < 0 || sensation > 100)
             throw new RangeError("Sensation must be between 0 and 100.");
-        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:sensation:${sensation}`);
+        await this.sendCommand(`set:sensation:${sensation}`);
     }
 
     /**
@@ -293,7 +301,7 @@ export class OssmBle implements Disposable {
     async setPattern(patternId: number): Promise<void> {
         if (patternId < 0)
             throw new RangeError("Pattern ID must be a non-negative integer.");
-        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `set:pattern:${patternId}`);
+        await this.sendCommand(`set:pattern:${patternId}`);
     }
 
     /**
@@ -301,7 +309,24 @@ export class OssmBle implements Disposable {
      * @param page One of the {@link OssmMenu} enum values
      */
     async navigateTo(page: OssmMenu): Promise<void> {
-        this.sendCommand(this.ossmServices!.primary.characteristics.currentState, `go:${page}`);
+        this.throwIfNotReady();
+
+        /** Valid navigations:
+         * Menu -> SimplePenetration
+         * Menu -> StrokeEngine
+         * SimplePenetration -> Menu
+         * StrokeEngine -> Menu
+         */
+
+        // Split state name at '.' to get base state
+        const activePage: string = this.cachedState!.state.indexOf('.') !== -1 ? this.cachedState!.state.split('.')[0] : this.cachedState!.state;
+        if (activePage == page)
+            return; // Already on desired page
+        else if ((activePage == OssmMenu.SimplePenetration || activePage == OssmMenu.StrokeEngine) &&
+            page == (OssmMenu.SimplePenetration || OssmMenu.StrokeEngine))
+            await this.sendCommand(`go:${OssmMenu.Menu}`); // Navigate back to menu first (required)
+
+        await this.sendCommand(`go:${page}`);
     }
 
     /**
