@@ -38,7 +38,6 @@ type OSSMServices = {
 //#endregion
 
 // TODO: Process in a queue.
-// TODO: Keep an internal state.
 export class OssmBle implements Disposable {
     //#region Static
     /**
@@ -64,6 +63,8 @@ export class OssmBle implements Disposable {
     private autoReconnect: boolean = true;
     private isReady: boolean = false;
     private ossmServices: OSSMServices | null = null;
+    private cachedState: OssmState | null = null;
+    private cachedPatternList: OssmPattern[] | null = null;
 
     private constructor(device: BluetoothDevice) {
         this.device = device;
@@ -151,6 +152,7 @@ export class OssmBle implements Disposable {
     private onCurrentStateChanged(event: Event): void {
         const state = JSON.parse(TEXT_DECODER.decode((event.target as BluetoothRemoteGATTCharacteristic).value!)) as OssmState;
         this.debugLog("onCurrentStateChanged:", state);
+        this.cachedState = state;
         this.dispatchEvent(OssmEventType.StateChanged, null);
     }
 
@@ -346,6 +348,22 @@ export class OssmBle implements Disposable {
             });
         }
         return patterns;
+    }
+
+    /**
+     * Gets the last cached OSSM state
+     * @returns An {@link OssmState} object or `null` if no state has been cached yet
+     */
+    getCachedState(): OssmState | null {
+        return this.cachedState;
+    }
+
+    /**
+     * Gets the last cached pattern list
+     * @returns An array of {@link OssmPattern} objects or `null` if no pattern list has been cached yet
+     */
+    getCachedPatternList(): OssmPattern[] | null {
+        return this.cachedPatternList;
     }
     //#endregion
 
