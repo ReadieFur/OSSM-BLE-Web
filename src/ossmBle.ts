@@ -459,7 +459,7 @@ export class OssmBle implements Disposable {
 
         // type PatternMap = { [idx: number]: Omit<OssmPattern, "idx">; };
         this.debugLog("Fetched pattern list:");
-        this.debugLogTable(patternList);
+        this.debugLogTable(patterns);
 
         this.cachedPatternList = patterns;
         return patterns;
