@@ -7,7 +7,8 @@ export { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState, type O
 
 //#region Constants
 const OSSM_DEVICE_NAME = "OSSM";
-const COMMAND_PROCESS_DELAY_MS = 25;
+const COMMAND_PROCESS_DELAY_MS = 50;
+const DISCONNECT_TIMEOUT_MS = 5000; // Time after which to consider the device disconnected for safety reasons.
 const OSSM_GATT_SERVICES = {
     PRIMARY: {
         uuid: '522b443a-4f53-534d-0001-420badbabe69',
@@ -64,6 +65,7 @@ export class OssmBle implements Disposable {
     private autoReconnect: boolean = true;
     private isReady: boolean = false;
     private ossmServices: OSSMServices | null = null;
+    private lastPoll: number = 0;
     private cachedState: OssmState | null = null;
     private cachedPatternList: OssmPattern[] | null = null;
 
@@ -98,7 +100,7 @@ export class OssmBle implements Disposable {
 
             await delay(100); // Short delay to try and help mitigate the error noted below.
 
-            /** An error can occur here where the device randomly and suddenly disconnects during service/characteristic discovery.
+            /* An error can occur here where the device randomly and suddenly disconnects during service/characteristic discovery.
              * I'm not sure what causes this, but my auto-reconnect logic should be able to handle it.
              * Apparently this is a known issue with web bluetooth.
              * Having implemented the BLE queue, this seems to have been mitigated, I suspected it was some kind of race condition on the network stack.
@@ -138,11 +140,21 @@ export class OssmBle implements Disposable {
         this.dispatchEvent(OssmEventType.Disconnected, null);
 
         this.debugLogIf(this.autoReconnect, "Reconnecting...");
+        let i = 0;
         while (this.autoReconnect)
         {
-            let i = 0;
             try {
+                const lastPollCaptured = this.lastPoll; // Capture required since the notification event may update before connect completes.
+
                 await this.connect();
+
+                // Because we disconnected we should immediately set to paused state for safety reasons (if disconnect was too long).
+                if (lastPollCaptured + DISCONNECT_TIMEOUT_MS < Date.now()) {
+                    this.debugLog("Disconnected for too long; stopping OSSM for safety.");
+                    try { await this.stop(); }
+                    catch {}
+                }                    
+
                 break;
             } catch (error) {
                 this.debugLog(`Reconnection attempt ${i} failed:`, error);
@@ -150,24 +162,19 @@ export class OssmBle implements Disposable {
                 i++;
             }
         }
-
-        // Because we disconnected we should immediately set to paused state for safety reasons.
-        try { this.setSpeed(0); }
-        catch {}
     }
 
     private onCurrentStateChanged(event: Event): void {
+        this.lastPoll = Date.now();
+
         const state = JSON.parse(TEXT_DECODER.decode((event.target as BluetoothRemoteGATTCharacteristic).value!)) as OssmState;
         
         if (this.cachedState && JSON.stringify(this.cachedState) === JSON.stringify(state)) {
-            // No change in state; ignore.
+            // No change in state, ignore.
             return;
         }
 
-        if (this.debug) {
-            this.debugLog("onCurrentStateChanged:");
-            console.table(state);
-        }
+        this.debugLogTable({ "On state changed": "", ...state });
         this.cachedState = state;
 
         this.dispatchEvent(OssmEventType.StateChanged, state);
@@ -250,6 +257,14 @@ export class OssmBle implements Disposable {
     }
 
     /**
+     * Stops the OSSM device (sets speed to 0)
+     */
+    async stop(): Promise<void> {
+        await this.setSpeed(0);
+    }
+
+    //#region Raw commands
+    /**
      * Set stroke speed percentage
      * @param speed A {@link number} between 0 and 100
      * @throws RangeError if speed is out of range
@@ -270,6 +285,11 @@ export class OssmBle implements Disposable {
     async setStroke(stroke: number): Promise<void> {
         if (stroke < 0 || stroke > 100)
             throw new RangeError("Stroke must be between 0 and 100.");
+
+        // For some reason the device will +1 whatever value is set here so we subtract 1 to compensate.
+        if (stroke > 0 && stroke < 100)
+            stroke -= 1;
+
         await this.sendCommand(`set:stroke:${stroke}`);
     }
 
@@ -282,6 +302,11 @@ export class OssmBle implements Disposable {
     async setDepth(depth: number): Promise<void> {
         if (depth < 0 || depth > 100)
             throw new RangeError("Depth must be between 0 and 100.");
+
+        // Same +1 quirk as stroke (see {@link setStroke})
+        if (depth > 0 && depth < 100)
+            depth -= 1;
+
         await this.sendCommand(`set:depth:${depth}`);
     }
 
@@ -294,6 +319,11 @@ export class OssmBle implements Disposable {
     async setSensation(sensation: number): Promise<void> {
         if (sensation < 0 || sensation > 100)
             throw new RangeError("Sensation must be between 0 and 100.");
+
+        // Same +1 quirk as stroke (see {@link setStroke})
+        if (sensation > 0 && sensation < 100)
+            sensation -= 1;
+
         await this.sendCommand(`set:sensation:${sensation}`);
     }
 
@@ -314,20 +344,20 @@ export class OssmBle implements Disposable {
     async navigateTo(page: OssmMenu): Promise<void> {
         this.throwIfNotReady();
 
+        // TODO: Fix this auto-navigation logic.
         /** Valid navigations:
          * Menu -> SimplePenetration
          * Menu -> StrokeEngine
          * SimplePenetration -> Menu
          * StrokeEngine -> Menu
          */
-
-        // Split state name at '.' to get base state
-        const activePage: string = this.cachedState!.state.indexOf('.') !== -1 ? this.cachedState!.state.split('.')[0] : this.cachedState!.state;
-        if (activePage == page)
-            return; // Already on desired page
-        else if ((activePage == OssmMenu.SimplePenetration || activePage == OssmMenu.StrokeEngine) &&
-            page == (OssmMenu.SimplePenetration || OssmMenu.StrokeEngine))
-            await this.sendCommand(`go:${OssmMenu.Menu}`); // Navigate back to menu first (required)
+        // // Split state name at '.' to get base state
+        // const activePage: string = this.cachedState!.state.indexOf('.') !== -1 ? this.cachedState!.state.split('.')[0] : this.cachedState!.state;
+        // if (activePage == page)
+        //     return; // Already on desired page
+        // else if ((activePage == OssmMenu.SimplePenetration || activePage == OssmMenu.StrokeEngine) &&
+        //     page == (OssmMenu.SimplePenetration || OssmMenu.StrokeEngine))
+        //     await this.sendCommand(`go:${OssmMenu.Menu}`); // Navigate back to menu first (required)
 
         await this.sendCommand(`go:${page}`);
     }
@@ -358,6 +388,10 @@ export class OssmBle implements Disposable {
         return value === "true";
     }
 
+    /**
+     * Gets the list of available stroke patterns from the OSSM device
+     * @returns An array of {@link OssmPattern} objects
+     */
     async getPatternList(): Promise<OssmPattern[]> {
         this.throwIfNotReady();
 
@@ -386,9 +420,16 @@ export class OssmBle implements Disposable {
                 description: description
             });
         }
+
+        // type PatternMap = { [idx: number]: Omit<OssmPattern, "idx">; };
+        this.debugLog("Fetched pattern list:");
+        this.debugLogTable(patternList);
+
         return patterns;
     }
+    //#endregion
 
+    //#region Internal memory getters
     /**
      * Gets the last cached OSSM state
      * @returns An {@link OssmState} object or `null` if no state has been cached yet
@@ -404,6 +445,136 @@ export class OssmBle implements Disposable {
     getCachedPatternList(): OssmPattern[] | null {
         return this.cachedPatternList;
     }
+
+    getCurrentMenu(state: OssmState | null = null): OssmMenu | null {
+        if (!state)
+            state = this.cachedState;
+        if (!state)
+            return null;
+        const currentMenu = state.state.indexOf('.') !== -1 ? state.state.split('.')[0] : state.state;
+        return currentMenu as OssmMenu;
+    }
+    //#endregion
+    //#endregion
+
+    //#region Wrappers
+    async strokeEngineSetSimpleStroke(
+        speed: number,
+        minDepthRelative: number,
+        maxDepthRelative: number,
+        minDepthAbsolute: number,
+        maxDepthAbsolute: number
+    ): Promise<void> {
+        // Validate settings
+        if (speed < 0 || speed > 100)
+            throw new RangeError("Speed must be between 0 and 100.");
+        if (minDepthRelative < 0 || minDepthRelative > 100)
+            throw new RangeError("minDepthRelative must be between 0 and 100.");
+        if (maxDepthRelative < 0 || maxDepthRelative > 100)
+            throw new RangeError("maxDepthRelative must be between 0 and 100.");
+        if (minDepthRelative >= maxDepthRelative)
+            throw new RangeError("minDepthRelative must be less than maxDepthRelative.");
+        if (minDepthAbsolute < 0 || minDepthAbsolute > 100)
+            throw new RangeError("minDepthAbsolute must be between 0 and 100.");
+        if (maxDepthAbsolute < 0 || maxDepthAbsolute > 100)
+            throw new RangeError("maxDepthAbsolute must be between 0 and 100.");
+        if (minDepthAbsolute >= maxDepthAbsolute)
+            throw new RangeError("minDepthAbsolute must be less than maxDepthAbsolute.");
+
+        // Calculate command values
+        /* StrokeEngine.SimpleStroke command format:
+         *
+         * - Depth:
+         *   Sets the maximum extension limit of the actuator.
+         *   The device will extend up to this value (0–100) and will not exceed it.
+         *
+         * - Stroke:
+         *   Sets how far the actuator retracts back from the depth limit.
+         *   The actuator will move between:
+         *     max = depth
+         *     min = depth - stroke
+         *
+         * Notes:
+         * - Motion always occurs backwards from depth (unless dip-switch 6 is set to invert motion).
+         * - Stroke is a retraction distance, not a centered range.
+         */
+        const range = maxDepthAbsolute - minDepthAbsolute;
+        const minPos = minDepthAbsolute + (minDepthRelative / 100) * range;
+        const maxPos = minDepthAbsolute + (maxDepthRelative / 100) * range;
+        const newDepth = maxPos;
+        const newStroke = maxPos - minPos;
+        const newMin = minPos;
+        const newMax = newDepth;
+        const newSpeed = speed;
+        
+        // Get current states
+        const capturedState = this.getCachedState()!; //Should never be null here.
+        const currentMenu = this.getCurrentMenu(capturedState)!;
+        const oldDepth = capturedState.depth;
+        const oldStroke = capturedState.stroke;
+        const oldMin = oldDepth - oldStroke;
+        const oldMax = oldDepth;
+        const oldSpeed = capturedState.speed;
+
+        this.debugLogTable({
+            "Stroke engine: Set simple stroke": "",
+            "Speed": `${oldSpeed} -> ${newSpeed}`,
+            "Depth": `${oldDepth} -> ${newDepth}`,
+            "Stroke": `${oldStroke} -> ${newStroke}`,
+            "Min Pos": `${oldMin} -> ${newMin}`,
+            "Max Pos": `${oldMax} -> ${newMax}`,
+        });
+
+        // Require that we are already on the StrokeEngine menu
+        if (currentMenu !== OssmMenu.StrokeEngine)
+            throw new DOMException(`Cannot set SimpleStroke settings when not on StrokeEngine menu (currently on ${currentMenu}).`, DOMExceptionError.InvalidState);
+
+        // Check if any changes are needed
+        if (oldSpeed === newSpeed && oldDepth === newDepth && oldStroke === newStroke) {
+            this.debugLog("strokeEngineSetSimpleStroke:", "No changes needed.");
+            return;
+        }
+
+        // Build setters
+        const applySpeed = async () => {
+            if (oldSpeed !== newSpeed)
+                return this.setSpeed(newSpeed);
+        };
+        const applyDepth = async () => {
+            if (oldDepth !== newDepth)
+                return this.setDepth(newDepth);
+        };
+        const applyStroke = async () => {
+            if (oldStroke !== newStroke)
+                return this.setStroke(newStroke);
+        };
+
+        // Queue commands
+        await this.bleTaskQueue.enqueue(async () => {
+            // Queue in a specific order to try and reduce jerkiness (we want to avoid sudden extension with increased speed)
+            if (newSpeed < oldSpeed) {
+                // Always safe case (down in speed, range change doesn't matter)
+                this.debugLog("strokeEngineSetSimpleStroke:", "Safe case: Decreasing speed");
+                applySpeed();
+                applyDepth();
+                applyStroke();
+            } else if (newSpeed > oldSpeed && (newMin < oldMin || newMax > oldMax)) {
+                /* Potentially risky case detected (fast + extended motion)
+                 * To mitigate risk, we first apply depth/stroke changes at old speed, then increase speed.
+                 */
+                this.debugLog("strokeEngineSetSimpleStroke:", "Risky case: Increasing speed with extended range");
+                applyDepth();
+                applyStroke();
+                applySpeed();
+            } else {
+                // Neutral case.
+                this.debugLog("strokeEngineSetSimpleStroke:", "Neutral case");
+                applyDepth();
+                applyStroke();
+                applySpeed();
+            }
+        });
+    }
     //#endregion
 
     //#region Debugging tools
@@ -417,6 +588,16 @@ export class OssmBle implements Disposable {
     private debugLogIf(condition: boolean, ...args: any[]): void {
         if (condition)
             this.debugLog(...args);
+    }
+
+    private debugLogTable(table: any): void {
+        if (this.debug)
+            console.table(table);
+    }
+
+    private debugLogTableIf(condition: boolean, table: any): void {
+        if (condition)
+            this.debugLogTable(table);
     }
     //#endregion
 }

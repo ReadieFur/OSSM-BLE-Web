@@ -27,17 +27,15 @@ class Dev {
         if (!this.ossmBle)
             throw new Error("Invalid state: No OSSM device connected.");
 
-        this.ossmBle.addEventListener(OssmEventType.Connected, () => console.log("OssmEventType.Connected"));
-        this.ossmBle.addEventListener(OssmEventType.Disconnected, () => console.log("OssmEventType.Disconnected"));
-        this.ossmBle.addEventListener(OssmEventType.StateChanged, () => console.log("OssmEventType.StateChanged"));
+        // this.ossmBle.addEventListener(OssmEventType.Connected, () => console.log("OssmEventType.Connected"));
+        // this.ossmBle.addEventListener(OssmEventType.Disconnected, () => console.log("OssmEventType.Disconnected"));
+        // this.ossmBle.addEventListener(OssmEventType.StateChanged, () => console.log("OssmEventType.StateChanged"));
 
         await this.ossmBle.begin();
         await this.ossmBle.waitForReady();
         console.log("OSSM is ready.");
 
-        const patterns = await this.ossmBle.getPatternList();
-        console.log("Pattern list:");
-        console.table(patterns);
+        await this.ossmBle.getPatternList();
     }
 }
 (window as any).dev = new Dev();
