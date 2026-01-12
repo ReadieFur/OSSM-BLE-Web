@@ -37,7 +37,6 @@ type OSSMServices = {
 };
 //#endregion
 
-// TODO: Process in a queue.
 export class OssmBle implements Disposable {
     //#region Static
     /**
@@ -135,7 +134,6 @@ export class OssmBle implements Disposable {
         this.isReady = false;
         this.debugLog("Disconnected");
 
-        // TODO: Set all (internal) functions to paused state, even once reconnected (for safety reasons).
         this.dispatchEvent(OssmEventType.Disconnected, null);
 
         this.debugLogIf(this.autoReconnect, "Reconnecting...");
@@ -144,7 +142,6 @@ export class OssmBle implements Disposable {
             let i = 0;
             try {
                 await this.connect();
-                // TODO: Set all (external) functions to paused state, even once reconnected (for safety reasons).
                 break;
             } catch (error) {
                 this.debugLog(`Reconnection attempt ${i} failed:`, error);
@@ -152,6 +149,10 @@ export class OssmBle implements Disposable {
                 i++;
             }
         }
+
+        // Because we disconnected we should immediately set to paused state for safety reasons.
+        try { this.setSpeed(0); }
+        catch {}
     }
 
     private onCurrentStateChanged(event: Event): void {
