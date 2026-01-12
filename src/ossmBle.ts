@@ -7,7 +7,7 @@ export { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState, type O
 
 //#region Constants
 const OSSM_DEVICE_NAME = "OSSM";
-const COMMAND_PROCESS_DELAY_MS = 25;
+const COMMAND_PROCESS_DELAY_MS = 50;
 const OSSM_GATT_SERVICES = {
     PRIMARY: {
         uuid: '522b443a-4f53-534d-0001-420badbabe69',
