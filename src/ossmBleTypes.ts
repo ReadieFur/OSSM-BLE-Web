@@ -79,3 +79,22 @@ export interface OssmState {
     depth: number;
     pattern: number;
 };
+
+export enum KnownPatterns {
+    SimpleStroke = 0,
+    TeasingPounding = 1,
+    RoboStroke = 2,
+    HalfNHalf = 3,
+    Deeper = 4,
+    StopNGo = 5,
+    Insist = 6,
+};
+
+export enum OssmMenu {
+    /** Switch to simple penetration mode from the menu */
+    SimplePenetration = "simplePenetration",
+    /** Switch to stroke engine mode from the menu */
+    StrokeEngine = "strokeEngine",
+    /** Return to main menu from either stroke engine or simple penetration */
+    Menu = "menu",
+};

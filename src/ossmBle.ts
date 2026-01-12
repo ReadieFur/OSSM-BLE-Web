@@ -2,7 +2,7 @@
 
 import type { ServicesDefinition, UpperSnakeToCamel } from "./helpers";
 import { delay, DOMExceptionError, upperSnakeToCamel } from "./helpers";
-import { OssmEventType, type OssmEventCallback, type OssmState } from "./ossmBleTypes";
+import { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState } from "./ossmBleTypes";
 
 //#region Constants
 const OSSM_DEVICE_NAME = "OSSM";
@@ -219,27 +219,51 @@ export class OssmBle implements Disposable {
             callbacks.splice(index, 1);
     }
 
+    /**
+     * Set stroke speed percentage
+     * @param speed A {@link number} between 0 and 100
+     */
     async setSpeed(speed: number): Promise<void> {
         throw new Error("Not implemented yet.");
     }
 
+    /**
+     * Set stroke length percentage
+     * @param stroke A {@link number} between 0 and 100
+     */
     async setStroke(stroke: number): Promise<void> {
         throw new Error("Not implemented yet.");
     }
 
+    /**
+     * Set penetration depth percentage
+     * @param depth A {@link number} between 0 and 100
+     */
     async setDepth(depth: number): Promise<void> {
         throw new Error("Not implemented yet.");
     }
 
+    /**
+     * Set sensation intensity percentage
+     * @param sensation A {@link number} between 0 and 100
+     */
     async setSensation(sensation: number): Promise<void> {
         throw new Error("Not implemented yet.");
     }
 
+    /**
+     * Set stroke pattern (see {@link getPatternList} for available patterns)
+     * @param patternId A {@link number} corresponding to a pattern ID
+     */
     async setPattern(patternId: number): Promise<void> {
         throw new Error("Not implemented yet.");
     }
 
-    async navigateTo(): Promise<void> {
+    /**
+     * Navigate to a specific menu page
+     * @param page One of the {@link OssmMenu} enum values
+     */
+    async navigateTo(page: OssmMenu): Promise<void> {
         throw new Error("Not implemented yet.");
     }
 
