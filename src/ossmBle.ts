@@ -3,6 +3,7 @@
 import type { ServicesDefinition, UpperSnakeToCamel } from "./helpers";
 import { delay, DOMExceptionError, upperSnakeToCamel } from "./helpers";
 import { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState } from "./ossmBleTypes";
+export * from "./ossmBleTypes"; // Include types in bundled export.
 
 //#region Constants
 const OSSM_DEVICE_NAME = "OSSM";
@@ -39,8 +40,8 @@ type OSSMServices = {
 export class OssmBle implements Disposable {
     //#region Static
     /**
-     * Prompts the user via the browser to pair with an OSSM BLE device.
-     * @requires that the page is served over HTTPS or from localhost & is called by a user gesture.
+     * Prompts the user via the browser to pair with an OSSM BLE device
+     * @requires that the page is served over HTTPS or from localhost & is called by a user gesture
      * @returns BluetoothDevice on successful pairing
      * @throws DOMException if pairing is cancelled or fails
      */

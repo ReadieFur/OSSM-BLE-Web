@@ -1,6 +1,5 @@
 //@ts-ignore
-import { OssmBle } from "../dist/ossmBle.js";
-import { OssmEventType } from "../src/ossmBleTypes.js";
+import { OssmBle, OssmEventType } from "../dist/ossmBle.js";
 
 class Dev {
     ossmBle: OssmBle | null = null;
