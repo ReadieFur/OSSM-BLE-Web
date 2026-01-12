@@ -1,5 +1,5 @@
 //@ts-ignore
-import { OssmBle } from "../dist/ossmBle.js";
+import { OssmBle, OssmEventType } from "../dist/ossmBle.js";
 
 class Dev {
     ossmBle: OssmBle | null = null;
@@ -26,6 +26,10 @@ class Dev {
     async onDevicePaired(): Promise<void> {
         if (!this.ossmBle)
             throw new Error("Invalid state: No OSSM device connected.");
+
+        this.ossmBle.addEventListener(OssmEventType.Connected, () => console.log("OssmEventType.Connected"));
+        this.ossmBle.addEventListener(OssmEventType.Disconnected, () => console.log("OssmEventType.Disconnected"));
+        this.ossmBle.addEventListener(OssmEventType.StateChanged, () => console.log("OssmEventType.StateChanged"));
 
         await this.ossmBle.begin();
         await this.ossmBle.waitForReady();

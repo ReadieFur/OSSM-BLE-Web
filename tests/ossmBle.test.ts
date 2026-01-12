@@ -4,7 +4,7 @@ import puppeteer, { Browser, Page } from "puppeteer";
 import path from "path";
 import { readFile } from "fs/promises";
 import { pageEvaluate } from "./helpers.js";
-import type { OssmBle } from "../src/ossmBle.js";
+import type { OssmEventType, OssmBle } from "../src/ossmBle.js";
 
 //#region ossmBle helpers
 declare global {
@@ -158,6 +158,47 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 
 	test("connect to device", async () => {
 		await createOssmBleInstance(page);
+	});
+
+	test("event listeners", async () => {
+		await createOssmBleInstance(page);
+		await pageEvaluate(page, async () => {
+			// Setup event listeners
+			let connectedFired = false;
+			let disconnectedFired = false;
+			let stateChangedFired = false;
+			// Hacky workaround to referencing the enum inside the page context.
+			// TODO: Fix reference issue between runtime contexts.
+			window.ossmBleInstance!.addEventListener(0 as OssmEventType, () => connectedFired = true);
+			window.ossmBleInstance!.addEventListener(1 as OssmEventType, () => disconnectedFired = true);
+			window.ossmBleInstance!.addEventListener(2 as OssmEventType, () => stateChangedFired = true);
+
+			// Begin the connection
+			window.ossmBleInstance!.begin();
+
+			await window.ossmBleInstance!.waitForReady();
+			if (!connectedFired)
+				throw new Error("Connected event did not fire");
+			console.log("Connected event fired");
+
+			// Await for a maximum of 2 seconds for a state change event, they should occur at least every second.
+			await new Promise<void>(async (resolve, reject) => {
+				const timeout = setTimeout(() => {
+					reject(new Error("StateChanged event did not fire within timeout"));
+				}, 2000);
+				while (!stateChangedFired)
+					await new Promise(r => setTimeout(r, 100));
+				clearTimeout(timeout);
+				console.log("StateChanged event fired");
+				resolve();
+			});
+
+			// Disconnect the device
+			await window.ossmBleInstance?.[Symbol.dispose]();
+			if (!disconnectedFired)
+				throw new Error("Disconnected event did not fire");
+			console.log("Disconnected event fired");
+		});
 	});
 
 	test("setSpeedKnobConfig", async () => {

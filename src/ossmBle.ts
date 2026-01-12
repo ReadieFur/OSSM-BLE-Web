@@ -2,8 +2,11 @@
 
 import type { ServicesDefinition, UpperSnakeToCamel } from "./helpers";
 import { delay, DOMExceptionError, upperSnakeToCamel } from "./helpers";
+import { OssmEventType, type OssmEventCallback, type OssmState } from "./ossmBleTypes";
 
 //#region Constants
+const OSSM_DEVICE_NAME = "OSSM";
+const COMMAND_PROCESS_DELAY_MS = 50;
 const OSSM_GATT_SERVICES = {
     PRIMARY: {
         uuid: '522b443a-4f53-534d-0001-420badbabe69',
@@ -15,15 +18,12 @@ const OSSM_GATT_SERVICES = {
         }
     }
 } as const satisfies ServicesDefinition;
-
-const OSSM_DEVICE_NAME = "OSSM";
-const COMMAND_PROCESS_DELAY_MS = 50;
-
-const TEXT_DECODER = new TextDecoder();
-const TEXT_ENCODER = new TextEncoder();
 //#endregion
 
-//#region Types & Interfaces
+//#region Misc setup
+const TEXT_DECODER = new TextDecoder();
+const TEXT_ENCODER = new TextEncoder();
+
 // Auto-generate a clean structure to store the GATT services based on the above definition (voodoo magic shit).
 type OSSMServices = {
     // https://stackoverflow.com/questions/42999983/typescript-removing-readonly-modifier
@@ -57,9 +57,9 @@ export class OssmBle implements Disposable {
 
     //#region Instance variables & (de)constructor
     private readonly device: BluetoothDevice;
+    private readonly eventCallbacks: Map<OssmEventType, OssmEventCallback[]> = new Map();
     private autoReconnect: boolean = true;
     private isReady: boolean = false;
-
     private ossmServices: OSSMServices | null = null;
 
     private constructor(device: BluetoothDevice) {
@@ -76,6 +76,13 @@ export class OssmBle implements Disposable {
     //#endregion
 
     //#region Instance methods (private)
+    private async dispatchEvent(eventType: OssmEventType, data: null): Promise<void> {
+        const callbacks = this.eventCallbacks.get(eventType);
+        if (callbacks)
+            for (const callback of callbacks)
+                callback(data); //Don't await; let them run async.
+    }
+
     private async connect(): Promise<void> {
         if (this.device.gatt?.connected)
             return;
@@ -106,6 +113,8 @@ export class OssmBle implements Disposable {
 
         this.debugLog("Connected");
         this.isReady = true;
+
+        this.dispatchEvent(OssmEventType.Connected, null);
     }
 
     private throwIfNotReady(): void {
@@ -118,6 +127,7 @@ export class OssmBle implements Disposable {
         this.debugLog("Disconnected");
 
         // TODO: Set all (internal) functions to paused state, even once reconnected (for safety reasons).
+        this.dispatchEvent(OssmEventType.Disconnected, null);
 
         this.debugLogIf(this.autoReconnect, "Reconnecting...");
         while (this.autoReconnect)
@@ -136,8 +146,9 @@ export class OssmBle implements Disposable {
     }
 
     private onCurrentStateChanged(event: Event): void {
-        const state = JSON.parse(TEXT_DECODER.decode((event.target as BluetoothRemoteGATTCharacteristic).value!));
+        const state = JSON.parse(TEXT_DECODER.decode((event.target as BluetoothRemoteGATTCharacteristic).value!)) as OssmState;
         this.debugLog("onCurrentStateChanged:", state);
+        this.dispatchEvent(OssmEventType.StateChanged, null);
     }
 
     private async throwIfCharacteristicIsError(characteristic: BluetoothRemoteGATTCharacteristic | null): Promise<void> {
@@ -181,6 +192,31 @@ export class OssmBle implements Disposable {
                 throw new Error("Timeout waiting for ossmBle to be ready.");
             await delay(100);
         }
+    }
+
+    /**
+     * Adds an event listener for the specified event type
+     * @param eventType one of {@link OssmEventType}
+     * @param callback Function to call when the event occurs (see {@link OssmEventCallback})
+     */
+    addEventListener(eventType: OssmEventType, callback: OssmEventCallback): void {
+        if (!this.eventCallbacks.has(eventType))
+            this.eventCallbacks.set(eventType, []);
+        this.eventCallbacks.get(eventType)!.push(callback);
+    }
+
+    /**
+     * Removes an event listener for the specified event type
+     * @param eventType one of {@link OssmEventType}
+     * @param callback Function to remove
+     */
+    removeEventListener(eventType: OssmEventType, callback: OssmEventCallback): void {
+        if (!this.eventCallbacks.has(eventType))
+            return;
+        const callbacks = this.eventCallbacks.get(eventType)!;
+        const index = callbacks.indexOf(callback);
+        if (index !== -1)
+            callbacks.splice(index, 1);
     }
 
     /**
