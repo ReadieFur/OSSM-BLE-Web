@@ -1,13 +1,13 @@
 // Reference: https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/BLE_Protocol.md
 
 import type { ServicesDefinition, UpperSnakeToCamel } from "./helpers";
-import { delay, DOMExceptionError, upperSnakeToCamel } from "./helpers";
+import { AsyncFunctionQueue, delay, DOMExceptionError, upperSnakeToCamel } from "./helpers";
 import { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState, type OssmPattern } from "./ossmBleTypes";
 export { OssmMenu, OssmEventType, type OssmEventCallback, type OssmState, type OssmPattern } from "./ossmBleTypes"; // Include specific types in bundled export.
 
 //#region Constants
 const OSSM_DEVICE_NAME = "OSSM";
-const COMMAND_PROCESS_DELAY_MS = 50;
+const COMMAND_PROCESS_DELAY_MS = 25;
 const OSSM_GATT_SERVICES = {
     PRIMARY: {
         uuid: '522b443a-4f53-534d-0001-420badbabe69',
@@ -59,6 +59,7 @@ export class OssmBle implements Disposable {
 
     //#region Instance variables & (de)constructor
     private readonly device: BluetoothDevice;
+    private readonly bleTaskQueue = new AsyncFunctionQueue();
     private readonly eventCallbacks: Map<OssmEventType, OssmEventCallback[]> = new Map();
     private autoReconnect: boolean = true;
     private isReady: boolean = false;
@@ -91,29 +92,33 @@ export class OssmBle implements Disposable {
         if (this.device.gatt?.connected)
             return;
 
-        const gattSnapshot = await this.device.gatt!.connect();
+        this.bleTaskQueue.clearQueue();
+        await this.bleTaskQueue.enqueue(async () => {
+            const gattSnapshot = await this.device.gatt!.connect();
 
-        await delay(100); // Short delay to try and help mitigate the error noted below.
+            await delay(100); // Short delay to try and help mitigate the error noted below.
 
-        /** An error can occur here where the device randomly and suddenly disconnects during service/characteristic discovery.
-         * I'm not sure what causes this, but my auto-reconnect logic should be able to handle it.
-         * Apparently this is a known issue with web bluetooth.
-         */
-        this.ossmServices = {} as OSSMServices;
-        for (const svcKey in OSSM_GATT_SERVICES) {
-            const svc = OSSM_GATT_SERVICES[svcKey as keyof typeof OSSM_GATT_SERVICES];
-            const service = await gattSnapshot.getPrimaryService(svc.uuid);
-            const characteristics: Record<string, BluetoothRemoteGATTCharacteristic> = {};
-            for (const charKey in svc.characteristics) {
-                const charUuid = svc.characteristics[charKey as keyof typeof svc.characteristics];
-                characteristics[upperSnakeToCamel(charKey)] = await service.getCharacteristic(charUuid);
+            /** An error can occur here where the device randomly and suddenly disconnects during service/characteristic discovery.
+             * I'm not sure what causes this, but my auto-reconnect logic should be able to handle it.
+             * Apparently this is a known issue with web bluetooth.
+             * Having implemented the BLE queue, this seems to have been mitigated, I suspected it was some kind of race condition on the network stack.
+             */
+            this.ossmServices = {} as OSSMServices;
+            for (const svcKey in OSSM_GATT_SERVICES) {
+                const svc = OSSM_GATT_SERVICES[svcKey as keyof typeof OSSM_GATT_SERVICES];
+                const service = await gattSnapshot.getPrimaryService(svc.uuid);
+                const characteristics: Record<string, BluetoothRemoteGATTCharacteristic> = {};
+                for (const charKey in svc.characteristics) {
+                    const charUuid = svc.characteristics[charKey as keyof typeof svc.characteristics];
+                    characteristics[upperSnakeToCamel(charKey)] = await service.getCharacteristic(charUuid);
+                }
+                //Given I know what the data layout is here, this will work but is not the right solution.
+                this.ossmServices[upperSnakeToCamel(svcKey) as keyof OSSMServices] = { service, characteristics } as any;
             }
-            //Given I know what the data layout is here, this will work but is not the right solution.
-            this.ossmServices[upperSnakeToCamel(svcKey) as keyof OSSMServices] = { service, characteristics } as any;
-        }
 
-        this.ossmServices.primary.characteristics.currentState.addEventListener("characteristicvaluechanged", this.onCurrentStateChanged.bind(this));
-        await this.ossmServices.primary.characteristics.currentState.startNotifications();
+            this.ossmServices.primary.characteristics.currentState.addEventListener("characteristicvaluechanged", this.onCurrentStateChanged.bind(this));
+            await this.ossmServices.primary.characteristics.currentState.startNotifications();
+        });
 
         this.debugLog("Connected");
         this.isReady = true;
@@ -159,11 +164,12 @@ export class OssmBle implements Disposable {
     private async sendCommand(characteristic: BluetoothRemoteGATTCharacteristic, value: string): Promise<void> {
         this.throwIfNotReady();
 
-        await characteristic.writeValue(TEXT_ENCODER.encode(value));
-        
-        await delay(COMMAND_PROCESS_DELAY_MS); // Give OSSM time to process the command.
-        
-        const returnedValue = TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.speedKnobConfiguration.readValue()).buffer);
+        const returnedValue = await this.bleTaskQueue.enqueue(async () => {
+            await characteristic.writeValue(TEXT_ENCODER.encode(value));
+            await delay(COMMAND_PROCESS_DELAY_MS); // Give OSSM time to process the command.
+            return TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.speedKnobConfiguration.readValue()).buffer) as string;
+        });
+
         if (returnedValue === `fail:${value}`) {
             throw new DOMException(`OSSM failed to process command: ${value}`, DOMExceptionError.OperationError);
         } else if (returnedValue !== `ok:${value}`) {
@@ -188,6 +194,7 @@ export class OssmBle implements Disposable {
      */
     end(): void {
         this.autoReconnect = false;
+        this.bleTaskQueue.clearQueue();
         if (this.device.gatt?.connected)
             this.device.gatt.disconnect();
     }
@@ -328,16 +335,17 @@ export class OssmBle implements Disposable {
             name: string;
             idx: number;
         }
-        const patternList = JSON.parse(TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.patternList.readValue()).buffer)) as RawPattern[];
+        const patternList = await this.bleTaskQueue.enqueue(async () =>
+            JSON.parse(TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.patternList.readValue()).buffer)) as RawPattern[]);
 
         // Get each pattern's description
         let patterns: OssmPattern[] = [];
         for (const rawPattern of patternList) {
-            await this.ossmServices!.primary.characteristics.patternDescription.writeValue(TEXT_ENCODER.encode(`${rawPattern.idx}`));
-
-            await delay(COMMAND_PROCESS_DELAY_MS);
-            
-            const description = TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.patternDescription.readValue()).buffer);
+            const description = await this.bleTaskQueue.enqueue(async () => {
+                await this.ossmServices!.primary.characteristics.patternDescription.writeValue(TEXT_ENCODER.encode(`${rawPattern.idx}`));
+                await delay(COMMAND_PROCESS_DELAY_MS);
+                return TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.patternDescription.readValue()).buffer);
+            });
             if (!description)
                 throw new DOMException(`Failed to get description for pattern ID ${rawPattern.idx}`, DOMExceptionError.DataError);
             

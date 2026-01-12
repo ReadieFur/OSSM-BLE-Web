@@ -34,6 +34,8 @@ class Dev {
         await this.ossmBle.begin();
         await this.ossmBle.waitForReady();
         console.log("OSSM is ready.");
+
+        console.log("Pattern list:", await this.ossmBle.getPatternList());
     }
 }
 (window as any).dev = new Dev();
