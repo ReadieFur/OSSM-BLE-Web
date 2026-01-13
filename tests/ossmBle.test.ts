@@ -136,7 +136,7 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 
 	afterEach(async () => {
 		// Refresh the page to reset state between tests.
-		// await page.reload({ waitUntil: ["networkidle0", "domcontentloaded"] });
+		await page.reload({ waitUntil: ["networkidle0", "domcontentloaded"] });
 	});
 
 	function runWebTestImpl(...args: any[]): Promise<any> {
@@ -146,5 +146,7 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 
 	//#endregion Test cases
 	test("connect to device", runWebTestImpl);
+
+	test
 	//#endregion
 });
