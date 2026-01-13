@@ -143,6 +143,27 @@ export async function testSetSensation() {
     ossmBle?.[Symbol.dispose]();
 }
 
+export async function testSetPattern() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+
+    const patterns = await ossmBle.getPatternList();
+    Assert.isTrue(patterns.length > 0, "Pattern list is empty");
+
+    // Test setting each pattern
+    for (const pattern of patterns) {
+        await ossmBle.setPattern(pattern.idx);
+    }
+
+    // Test setting an invalid pattern
+    const invalidPatternId = Math.max(...patterns.map(p => p.idx)) + 1;
+    await Assert.throwsAsync(async () => ossmBle.setPattern(-1));
+    await Assert.throwsAsync(async () => ossmBle.setPattern(invalidPatternId));
+ 
+    ossmBle?.[Symbol.dispose]();
+}
+
 export async function testNavigateTo() {
     const ossmBle = await CreateOssmBleInstance();
     await ossmBle.begin();

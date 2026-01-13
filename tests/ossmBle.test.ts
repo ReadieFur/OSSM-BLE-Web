@@ -153,6 +153,7 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 	test("set stroke", runWebTestImpl);
 	test("set depth", runWebTestImpl);
 	test("set sensation", runWebTestImpl);
+	test("set pattern", runWebTestImpl);
 
 	//This test can take a long time due to homing occurring between page navigations
 	test("navigate to", { timeout: 60_000 }, runWebTestImpl);
