@@ -2,7 +2,7 @@
 
 //@ts-ignore
 import { KnownPattern, OssmBle, OssmEventType, OssmPage, PatternHelper } from "../dist/ossmBle.js";
-import type { OssmPlayData } from "../src/ossmBleTypes";
+import type { OSSMEventCallbackParameters, OssmPlayData } from "../src/ossmBleTypes";
 
 abstract class Input<T> {
     public readonly container: HTMLDivElement = document.createElement("div");
@@ -117,6 +117,13 @@ class RadioInput extends Input<string> {
             });
         });
     }
+
+    override setValue(value: string): void {
+        super.setValue(value);
+        this.radios.forEach(radio => {
+            radio.checked = (radio.value === value);
+        });
+    }
 }
 
 class ButtonInput extends Input<void> {
@@ -181,9 +188,9 @@ class Dev {
         if (!this.ossmBle)
             throw new Error("Invalid state: No OSSM device connected.");
 
-        this.ossmBle.addEventListener(OssmEventType.Connected, this.onConnected.bind(this));
-        this.ossmBle.addEventListener(OssmEventType.Disconnected, this.onDisconnected.bind(this));
-        this.ossmBle.addEventListener(OssmEventType.StateChanged, this.onStateChanged.bind(this));
+        this.ossmBle.addEventListener(OssmEventType.Connected, d => this.onConnected(d));
+        this.ossmBle.addEventListener(OssmEventType.Disconnected, d => this.onDisconnected(d));
+        this.ossmBle.addEventListener(OssmEventType.StateChanged, d => this.onStateChanged(d));
 
         await this.ossmBle.begin();
         await this.ossmBle.waitForReady();
@@ -213,12 +220,13 @@ class Dev {
         );
         this.domObjects.push(speedKnobConfigInput);
 
-        const usePatternHelperInput = new BooleanInput(
-            "Use Pattern helper",
-            false,
-            async (value) => this.usePatternHelper(value)
+        const helperModeInput = new RadioInput(
+            "Helper modes:",
+            ["none", "pattern", "position"],
+            "none",
+            async (value) => this.setHelperMode(value)
         );
-        this.domObjects.push(usePatternHelperInput);
+        this.domObjects.push(helperModeInput);
 
         this.pageInput = new RadioInput(
             "Page",
@@ -239,24 +247,34 @@ class Dev {
         this.speedInput = new NumericInput(
             "Speed",
             initialState.speed,
-            async (value) => await this.ossmBle?.setSpeed(value)
+            async (value) => {
+                if (helperModeInput.getValue() === "position")
+                    await this.ossmBle?.moveToPosition(this.depthInput!.getValue(), value);
+                else
+                    await this.ossmBle?.setSpeed(value);
+            }
         );
         this.domObjects.push(this.speedInput);
 
         // Stroke engine inputs
+        this.depthInput = new NumericInput(
+            "Depth",
+            initialState.depth,
+            async (value) => {
+                if (helperModeInput.getValue() === "position")
+                    await this.ossmBle?.moveToPosition(value, this.speedInput!.getValue());
+                else
+                    await this.ossmBle?.setDepth(value);
+            }
+        );
+        this.standardInputObjects.push(this.depthInput);
+
         this.strokeInput = new NumericInput(
             "Stroke",
             initialState.stroke,
             async (value) => await this.ossmBle?.setStroke(value)
         );
         this.standardInputObjects.push(this.strokeInput);
-
-        this.depthInput = new NumericInput(
-            "Depth",
-            initialState.depth,
-            async (value) => await this.ossmBle?.setDepth(value)
-        );
-        this.standardInputObjects.push(this.depthInput);
 
         this.sensationInput = new NumericInput(
             "Sensation",
@@ -299,18 +317,31 @@ class Dev {
         this.standardInputObjects.forEach(obj => document.body.appendChild(obj.container));
         this.patternInputObjects.forEach(obj => document.body.appendChild(obj.container));
 
-        this.usePatternHelper(usePatternHelperInput.getValue());
-        await this.onStateChanged();
+        this.setHelperMode(helperModeInput.getValue());
+        await this.onStateChanged({
+            event: OssmEventType.StateChanged,
+            [OssmEventType.StateChanged]: {
+                newState: initialState,
+                oldState: null
+            }
+        });
         //#endregion
     }
 
-    usePatternHelper(value: boolean): void {
-        if (value) {
+    setHelperMode(value: string): void {
+        if (value === "pattern") {
             this.standardInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
             this.patternInputObjects.forEach(obj => obj.container.removeAttribute("disabled"));
+            this.strokeInput?.container.removeAttribute("disabled");
+        } else if (value === "position") {
+            this.standardInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
+            this.patternInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
+            this.strokeInput?.container.setAttribute("disabled", "true");
+            this.depthInput?.container.removeAttribute("disabled");
         } else {
             this.standardInputObjects.forEach(obj => obj.container.removeAttribute("disabled"));
             this.patternInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
+            this.strokeInput?.container.removeAttribute("disabled");
         }
     }
 
@@ -328,23 +359,23 @@ class Dev {
         ));
     }
 
-    async onConnected(): Promise<void> {
+    async onConnected(data: OSSMEventCallbackParameters): Promise<void> {
         this.domObjects.forEach(obj => obj.container.attributes.removeNamedItem("disabled"));
     }
 
-    async onDisconnected(): Promise<void> {
+    async onDisconnected(data: OSSMEventCallbackParameters): Promise<void> {
         this.domObjects.forEach(obj => obj.container.attributes.setNamedItem(document.createAttribute("disabled")));
     }
 
-    async onStateChanged(): Promise<void> {
+    async onStateChanged(data: OSSMEventCallbackParameters): Promise<void> {
         if (!this.ossmBle || this.updatingProperties)
             return;
 
         this.updatingProperties = true;
 
-        const state = await this.ossmBle.getState();
+        const state = data[OssmEventType.StateChanged]!.newState;
         
-        this.pageInput?.setValue(await this.ossmBle.getCurrentPage());
+        this.pageInput?.setValue(await this.ossmBle.getCurrentPage(state));
         this.patternInput?.setValue(this.ossmBle.getCachedPatternList()![state.pattern].name);
         this.speedInput?.setValue(state.speed);
         this.strokeInput?.setValue(state.stroke);

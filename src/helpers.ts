@@ -128,3 +128,9 @@ export class AsyncFunctionQueue {
         this.currentAbort?.abort(new DOMException(reason, DOMExceptionError.AbortError));
     }
 }
+
+/** Useful for modifying the speed value for OSSM since it seems to be non-linear */
+export function mapRational(x: number, k = 1.8): number {
+    const n = x / 100;
+    return (n / (n + k * (1 - n))) * 100;
+}

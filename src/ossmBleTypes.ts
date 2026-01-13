@@ -16,7 +16,17 @@ export enum OssmEventType {
     StateChanged
 };
 
-export type OssmEventCallback = (data: null | OssmState) => Promise<any> | any;
+export type OSSMEventCallbackParameters = {
+    event: OssmEventType;
+    // [OssmEventType.Connected]?: null;
+    // [OssmEventType.Disconnected]?: null;
+    [OssmEventType.StateChanged]?: {
+        newState: OssmState;
+        oldState: OssmState | null;
+    }
+};
+
+export type OssmEventCallback = (data: OSSMEventCallbackParameters) => Promise<any> | any;
 
 export enum OssmStatus {
     /** Initializing */
@@ -32,11 +42,11 @@ export enum OssmStatus {
     /** Menu idle state */
     MenuIdle = "menu.idle",
     /** Simple penetration mode */
-    SimplePenetration = "simple.penetration",
+    SimplePenetration = "simplePenetration",
     /** Simple penetration idle */
-    SimplePenetrationIdle = "simple.penetration.idle",
+    SimplePenetrationIdle = "simplePenetration.idle",
     /** Pre-flight checks */
-    SimplePenetrationPreflight = "simple.penetration.preflight",
+    SimplePenetrationPreflight = "simplePenetration.preflight",
     /** Stroke engine mode */
     StrokeEngine = "strokeEngine",
     /** Stroke engine idle */
