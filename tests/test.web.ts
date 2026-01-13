@@ -4,12 +4,12 @@ export class Assert {
             throw new Error(message || "Assertion failed");
     }
 
-    static true(condition: boolean, message?: string): void {
+    static isTrue(condition: boolean, message?: string): void {
         if (!condition)
             throw new Error(message || "Assertion failed: condition is not true");
     }
 
-    static false(condition: boolean, message?: string): void {
+    static isFalse(condition: boolean, message?: string): void {
         if (condition)
             throw new Error(message || "Assertion failed: condition is not false");
     }

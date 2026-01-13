@@ -147,6 +147,6 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 	//#endregion Test cases
 	test("connect to device", runWebTestImpl);
 
-	test
+	test("events", runWebTestImpl);
 	//#endregion
 });
