@@ -172,9 +172,6 @@ export enum KnownPattern {
      * @note Can be used to set the rod to a specific position
      * @example
      * ```ts
-     * // Set the rod to 30% depth at 100% speed
-     * await ossmBle.runStrokeEnginePattern(new PatternHelper(KnownPattern.Insist, 0, 30, 100, 100));
-     * // or
      * await ossmBle.runStrokeEnginePattern({
      *    pattern: KnownPattern.Insist,
      *    depth: 30,

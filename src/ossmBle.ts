@@ -18,6 +18,7 @@ import {
     type OssmState,
     type OssmPattern,
     type OssmPlayData,
+    type OSSMEventCallbackParameters,
 } from "./ossmBleTypes";
 import {
     KnownPattern
@@ -112,8 +113,8 @@ export class OssmBle implements Disposable {
     //#endregion
 
     //#region Instance methods (private)
-    private async dispatchEvent(eventType: OssmEventType, data: null | OssmState): Promise<void> {
-        const callbacks = this.eventCallbacks.get(eventType);
+    private async dispatchEvent(data: OSSMEventCallbackParameters): Promise<void> {
+        const callbacks = this.eventCallbacks.get(data.event);
         if (callbacks)
             for (const callback of callbacks)
                 callback(data); //Don't await; let them run async.
@@ -154,7 +155,7 @@ export class OssmBle implements Disposable {
         this.debugLog("Connected");
         this.isReady = true;
 
-        this.dispatchEvent(OssmEventType.Connected, null);
+        this.dispatchEvent({ event: OssmEventType.Connected });
     }
 
     private throwIfNotReady(): void {
@@ -166,7 +167,7 @@ export class OssmBle implements Disposable {
         this.isReady = false;
         this.debugLog("Disconnected");
 
-        this.dispatchEvent(OssmEventType.Disconnected, null);
+        this.dispatchEvent({ event: OssmEventType.Disconnected });
 
         this.debugLogIf(this.autoReconnect, "Reconnecting...");
         let i = 0;
@@ -196,6 +197,8 @@ export class OssmBle implements Disposable {
     private onCurrentStateChanged(event: Event): void {
         this.lastPoll = Date.now();
 
+        const oldState = this.cachedState;
+
         type JsonState = Omit<OssmState, "status"> & {
             state: OssmStatus;
         };
@@ -203,18 +206,22 @@ export class OssmBle implements Disposable {
         const { state, ...rest } = jsonStateObj;
         const remappedStateObj: OssmState = { status: state, ...rest };
         
-        if (this.cachedState && JSON.stringify(this.cachedState) === JSON.stringify(remappedStateObj)) {
-            // No change in state, ignore.
-            return;
-        }
+        if (oldState && JSON.stringify(oldState) === JSON.stringify(remappedStateObj))
+            return; // No change in state, ignore.
+        this.cachedState = remappedStateObj;
 
         this.debugLogTable({
             "New state": remappedStateObj,
             "Old state": this.cachedState
         });
-        this.cachedState = remappedStateObj;
 
-        this.dispatchEvent(OssmEventType.StateChanged, remappedStateObj);
+        this.dispatchEvent({
+            event: OssmEventType.StateChanged,
+            [OssmEventType.StateChanged]: {
+                newState: remappedStateObj,
+                oldState: oldState
+            }
+        });
     }
 
     private async sendCommand(value: string): Promise<void> {
@@ -683,13 +690,15 @@ export class OssmBle implements Disposable {
             await this.setSpeed(speed);
         }
 
+        this.lastFixedPosition = position;
+
         /* TODO: Find a way to detect what the current position of the device is,
          * wait until it reaches the desired position,
          * then set speed to 0 to hold it there.
          * (Safer than leaving it running in-case of value change or firmware bug)
+         * Additionally with this pattern if a new depth is set while it is still moving it will wait until it reaches the previous target before moving to the new one,
+         * by setting the speed to 0 first this can be avoided, but that depends on being able to detect the current position.
          */
-
-        this.lastFixedPosition = position;
     }
     //#endregion
 
