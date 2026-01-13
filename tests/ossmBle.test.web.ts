@@ -76,6 +76,20 @@ export async function testEvents() {
     Assert.isTrue(disconnectedFired, "Disconnected event did not fire");
 }
 
+export async function testSetSpeedKnobConfig() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+
+    await ossmBle.setSpeedKnobConfig(true);
+    Assert.isTrue(await ossmBle.getSpeedKnobConfig(), "Speed knob config should be true");
+
+    await ossmBle.setSpeedKnobConfig(false);
+    Assert.isFalse(await ossmBle.getSpeedKnobConfig(), "Speed knob config should be false");
+
+    ossmBle?.[Symbol.dispose]();
+}
+
 export async function testSetSpeed() {
     /* Speeds may not be reflected in the real world if the device is not in an engine mode
      * This is fine behavior for the purposes of these tests as we just want to check if the commands are accepted or rejected
