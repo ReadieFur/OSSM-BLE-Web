@@ -6,6 +6,7 @@ interface TestWindow extends Window, ExposedWindowProperties {}
 declare const window: TestWindow;
 
 async function CreateOssmBleInstance(): Promise<OssmBle> {
+    // Create an invisible button to trigger BLE device selection
     const bleButton = document.createElement("button");
     bleButton.id = `bleButton_${Math.random().toString(36).substring(2)}`;
     bleButton.classList.add("invisible");
@@ -25,10 +26,20 @@ async function CreateOssmBleInstance(): Promise<OssmBle> {
     // Tell Puppeteer to click the button to trigger device selection
     await window.selectBleDevice(bleButton.id, "OSSM");
 
-    return await bleDevicePromise;
+    // Await the OssmBle instance
+    const instance = await bleDevicePromise;
+    Assert.exists(instance);
+
+    // Cleanup
+    document.body.removeChild(bleButton);
+
+    return instance;
 }
 
 export async function testConnectToDevice() {
+    await CreateOssmBleInstance();
+}
+
     const ossmBle = await CreateOssmBleInstance();
     Assert.exists(ossmBle);
 }
