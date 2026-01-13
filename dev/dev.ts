@@ -1,5 +1,8 @@
+// I'm fully aware this file is a mess, its just for a development sandbox.
+
 //@ts-ignore
-import { OssmBle, OssmEventType, OssmPage } from "../dist/ossmBle.js";
+import { KnownPattern, OssmBle, OssmEventType, OssmPage, PatternHelper } from "../dist/ossmBle.js";
+import type { OssmPlayData } from "../src/ossmBleTypes";
 
 abstract class Input<T> {
     public readonly container: HTMLDivElement = document.createElement("div");
@@ -116,9 +119,35 @@ class RadioInput extends Input<string> {
     }
 }
 
+class ButtonInput extends Input<void> {
+    private readonly button: HTMLButtonElement;
+    constructor(tag: string, onClick: () => void) {
+        super(tag, undefined, () => {});
+        this.button = document.createElement("button");
+        this.button.textContent = tag;
+        this.container.appendChild(this.button);
+        this.button.addEventListener("click", (e) => {
+            onClick();
+        });
+    }
+}
+
 class Dev {
     ossmBle: OssmBle | null = null;
     domObjects: Input<any>[] = [];
+    standardInputObjects: Input<any>[] = [];
+    patternInputObjects: Input<any>[] = [];
+    updatingProperties: boolean = false;
+    pageInput: RadioInput | null = null;
+    patternInput: RadioInput | null = null;
+    speedInput: NumericInput | null = null;
+    strokeInput: NumericInput | null = null;
+    depthInput: NumericInput | null = null;
+    sensationInput: NumericInput | null = null;
+    minDepthInput: NumericInput | null = null;
+    maxDepthInput: NumericInput | null = null;
+    intensityInput: NumericInput | null = null;
+    invertInput: RadioInput | null = null;
 
     constructor() {
         document.addEventListener("DOMContentLoaded", async () => {
@@ -126,6 +155,10 @@ class Dev {
             connectBtn.addEventListener('click', async () => {
                 this.domObjects.forEach(obj => obj.container.remove());
                 this.domObjects = [];
+                this.standardInputObjects.forEach(obj => obj.container.remove());
+                this.standardInputObjects = [];
+                this.patternInputObjects.forEach(obj => obj.container.remove());
+                this.patternInputObjects = [];
 
                 if (this.ossmBle) {
                     try { this.ossmBle?.[Symbol.dispose](); }
@@ -159,67 +192,140 @@ class Dev {
         await this.ossmBle.setSpeedKnobConfig(false);
         await this.ossmBle.getPatternList();
 
+        // await this.ossmBle.runStrokeEnginePattern(new PatternHelper(KnownPattern.SimpleStroke, 20, 80, 70));
+        // await this.ossmBle.runStrokeEnginePattern(new PatternHelper(KnownPattern.TeasingPounding, 20, 80, 20, 100, false));
+        // await this.ossmBle.runStrokeEnginePattern(new PatternHelper(KnownPattern.RoboStroke, 30, 70, 15, 0));
+        // await this.ossmBle.runStrokeEnginePattern(new PatternHelper(KnownPattern.Insist, 0, 30, 100, 100));
+
         //#region Setup DOM
         const initialState = await this.ossmBle.getState();
+
+        const stopButton = new ButtonInput(
+            "Stop",
+            async () => await this.ossmBle?.stop()
+        );
+        this.domObjects.push(stopButton);
 
         const speedKnobConfigInput = new BooleanInput(
             "Speed knob as limit",
             await this.ossmBle.getSpeedKnobConfig(),
             async (value) => await this.ossmBle?.setSpeedKnobConfig(value)
         );
-        document.body.appendChild(speedKnobConfigInput.container);
         this.domObjects.push(speedKnobConfigInput);
 
-        const pageInput = new RadioInput(
+        const usePatternHelperInput = new BooleanInput(
+            "Use Pattern helper",
+            false,
+            async (value) => this.usePatternHelper(value)
+        );
+        this.domObjects.push(usePatternHelperInput);
+
+        this.pageInput = new RadioInput(
             "Page",
             Object.values(OssmPage),
             await this.ossmBle.getCurrentPage(),
             async (value) => await this.ossmBle?.navigateTo(value as OssmPage)
         );
-        document.body.appendChild(pageInput.container);
-        this.domObjects.push(pageInput);
+        this.domObjects.push(this.pageInput);
 
-        const speedInput = new NumericInput(
-            "Speed",
-            initialState.speed,
-            async (value) => await this.ossmBle?.setSpeed(value)
-        );
-        document.body.appendChild(speedInput.container);
-        this.domObjects.push(speedInput);
-
-        const strokeInput = new NumericInput(
-            "Stroke",
-            initialState.stroke,
-            async (value) => await this.ossmBle?.setStroke(value)
-        );
-        document.body.appendChild(strokeInput.container);
-        this.domObjects.push(strokeInput);
-
-        const depthInput = new NumericInput(
-            "Depth",
-            initialState.depth,
-            async (value) => await this.ossmBle?.setDepth(value)
-        );
-        document.body.appendChild(depthInput.container);
-        this.domObjects.push(depthInput);
-
-        const sensationInput = new NumericInput(
-            "Sensation",
-            initialState.sensation,
-            async (value) => await this.ossmBle?.setSensation(value)
-        );
-        document.body.appendChild(sensationInput.container);
-        this.domObjects.push(sensationInput);
-
-        const patternInput = new RadioInput(
+        this.patternInput = new RadioInput(
             "Pattern",
             this.ossmBle.getCachedPatternList()!.map(p => p.name),
             this.ossmBle.getCachedPatternList()![initialState.pattern].name,
             async (value) => await this.ossmBle?.setPattern(this.ossmBle?.getCachedPatternList()!.findIndex(p => p.name === value)!)
         );
-        document.body.appendChild(patternInput.container);
-        this.domObjects.push(patternInput);
+        this.domObjects.push(this.patternInput);
+
+        this.speedInput = new NumericInput(
+            "Speed",
+            initialState.speed,
+            async (value) => await this.ossmBle?.setSpeed(value)
+        );
+        this.domObjects.push(this.speedInput);
+
+        // Stroke engine inputs
+        this.strokeInput = new NumericInput(
+            "Stroke",
+            initialState.stroke,
+            async (value) => await this.ossmBle?.setStroke(value)
+        );
+        this.standardInputObjects.push(this.strokeInput);
+
+        this.depthInput = new NumericInput(
+            "Depth",
+            initialState.depth,
+            async (value) => await this.ossmBle?.setDepth(value)
+        );
+        this.standardInputObjects.push(this.depthInput);
+
+        this.sensationInput = new NumericInput(
+            "Sensation",
+            initialState.sensation,
+            async (value) => await this.ossmBle?.setSensation(value)
+        );
+        this.standardInputObjects.push(this.sensationInput);
+
+        // Pattern helper
+        this.minDepthInput = new NumericInput(
+            "Pattern Min Depth",
+            0,
+            async (value) => this.helperPatternUpdate()
+        );
+        this.patternInputObjects.push(this.minDepthInput);
+
+        this.maxDepthInput = new NumericInput(
+            "Pattern Max Depth",
+            100,
+            async (value) => this.helperPatternUpdate()
+        );
+        this.patternInputObjects.push(this.maxDepthInput);
+
+        this.intensityInput = new NumericInput(
+            "Pattern Intensity",
+            100,
+            async (value) => this.helperPatternUpdate()
+        );
+        this.patternInputObjects.push(this.intensityInput);
+
+        this.invertInput = new RadioInput(
+            "Pattern Invert",
+            ["undefined", "true", "false"],
+            "undefined",
+            async (value) => this.helperPatternUpdate()
+        );
+        this.patternInputObjects.push(this.invertInput);
+
+        this.domObjects.forEach(obj => document.body.appendChild(obj.container));
+        this.standardInputObjects.forEach(obj => document.body.appendChild(obj.container));
+        this.patternInputObjects.forEach(obj => document.body.appendChild(obj.container));
+
+        this.usePatternHelper(usePatternHelperInput.getValue());
+        await this.onStateChanged();
         //#endregion
+    }
+
+    usePatternHelper(value: boolean): void {
+        if (value) {
+            this.standardInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
+            this.patternInputObjects.forEach(obj => obj.container.removeAttribute("disabled"));
+        } else {
+            this.standardInputObjects.forEach(obj => obj.container.removeAttribute("disabled"));
+            this.patternInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
+        }
+    }
+
+    async helperPatternUpdate(): Promise<void> {
+        if (!this.ossmBle || this.updatingProperties)
+            return;
+
+        await this.ossmBle?.runStrokeEnginePattern(new PatternHelper(
+            this.ossmBle!.getCachedPatternList()!.findIndex(p => p.name === this.patternInput!.getValue()),
+            this.minDepthInput!.getValue(),
+            this.maxDepthInput!.getValue(),
+            this.speedInput!.getValue(),
+            this.intensityInput!.getValue(),
+            this.invertInput!.getValue() === "undefined" ? undefined : (this.invertInput!.getValue() === "true")
+        ));
     }
 
     async onConnected(): Promise<void> {
@@ -231,10 +337,31 @@ class Dev {
     }
 
     async onStateChanged(): Promise<void> {
-        if (!this.ossmBle)
+        if (!this.ossmBle || this.updatingProperties)
             return;
 
+        this.updatingProperties = true;
+
         const state = await this.ossmBle.getState();
+        
+        this.pageInput?.setValue(await this.ossmBle.getCurrentPage());
+        this.patternInput?.setValue(this.ossmBle.getCachedPatternList()![state.pattern].name);
+        this.speedInput?.setValue(state.speed);
+        this.strokeInput?.setValue(state.stroke);
+        this.depthInput?.setValue(state.depth);
+        this.sensationInput?.setValue(state.sensation);
+
+        try {
+            const pattern = PatternHelper.fromPlayData(state, state.sensation !== 100, false);
+            this.minDepthInput?.setValue(pattern.minDepth);
+            this.maxDepthInput?.setValue(pattern.maxDepth);
+            if (pattern.intensity !== undefined)
+                this.intensityInput?.setValue(pattern.intensity);
+        } catch (error) {
+            console.error(error);
+        }
+
+        this.updatingProperties = false;
     }
 }
 (window as any).dev = new Dev();
