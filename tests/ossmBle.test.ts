@@ -149,6 +149,7 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 
 	test("events", runWebTestImpl);
 
+	test("set speed knob config", runWebTestImpl);
 	test("set speed", runWebTestImpl);
 	test("set stroke", runWebTestImpl);
 	test("set depth", runWebTestImpl);
