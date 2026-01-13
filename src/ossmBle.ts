@@ -655,9 +655,7 @@ export {
     type OssmPattern,
 } from "./ossmBleTypes";
 export {
-    BasicPattern,
-    ConfigurablePattern,
-    ReversiblePattern,
-    type StrokeEnginePattern,
+    KnownPattern,
+    PatternHelper
 } from "./patterns";
 //#endregion
