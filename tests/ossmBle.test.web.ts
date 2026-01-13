@@ -142,3 +142,23 @@ export async function testSetSensation() {
     
     ossmBle?.[Symbol.dispose]();
 }
+
+export async function testNavigateTo() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+
+    // Initial state is required before navigation can begin, this method will block until one is received
+    await ossmBle.getState();
+
+    await ossmBle.navigateTo(OssmPage.SimplePenetration);
+    await ossmBle.waitForStatus(OssmStatus.SimplePenetrationIdle, 20_000);
+
+    await ossmBle.navigateTo(OssmPage.StrokeEngine);
+    await ossmBle.waitForStatus(OssmStatus.StrokeEngineIdle, 20_000);
+
+    await ossmBle.navigateTo(OssmPage.Menu);
+    await ossmBle.waitForStatus(OssmStatus.MenuIdle, 1_000);
+
+    ossmBle?.[Symbol.dispose]();
+}
