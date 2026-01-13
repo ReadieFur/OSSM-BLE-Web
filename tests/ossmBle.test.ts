@@ -148,5 +148,10 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 	test("connect to device", runWebTestImpl);
 
 	test("events", runWebTestImpl);
+
+	test("set speed", runWebTestImpl);
+	test("set stroke", runWebTestImpl);
+	test("set depth", runWebTestImpl);
+	test("set sensation", runWebTestImpl);
 	//#endregion
 });

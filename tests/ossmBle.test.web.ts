@@ -1,5 +1,5 @@
 import { Assert } from "./test.web.js";
-import { OssmBle, OssmEventType } from "../dist/ossmBle.js";
+import { OssmBle, OssmEventType, OssmPage, OssmStatus } from "../dist/ossmBle.js";
 import type { ExposedWindowProperties } from "./ossmBle.test";
 
 interface TestWindow extends Window, ExposedWindowProperties {}
@@ -33,11 +33,14 @@ async function CreateOssmBleInstance(): Promise<OssmBle> {
     // Cleanup
     document.body.removeChild(bleButton);
 
+    instance.debug = true;
     return instance;
 }
 
 export async function testConnectToDevice() {
-    await CreateOssmBleInstance();
+    const ossmBle = await CreateOssmBleInstance();
+    // Cleanup gracefully
+    ossmBle?.[Symbol.dispose]();
 }
 
 export async function testEvents() {
@@ -71,4 +74,71 @@ export async function testEvents() {
     ossmBle?.[Symbol.dispose]();
     await new Promise(r => setTimeout(r, 500)); // Wait a bit for the event to fire (dispose is exposed as synchronous but contains async operations)
     Assert.isTrue(disconnectedFired, "Disconnected event did not fire");
+}
+
+export async function testSetSpeed() {
+    /* Speeds may not be reflected in the real world if the device is not in an engine mode
+     * This is fine behavior for the purposes of these tests as we just want to check if the commands are accepted or rejected
+     * e.g. Won't run in main menu but will still accept the command
+     */
+
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+
+    // Should pass without error.
+    await ossmBle.setSpeed(100);
+    await ossmBle.setSpeed(50);
+    await ossmBle.setSpeed(0);
+
+    // Should throw errors
+    await Assert.throwsAsync(async () => ossmBle.setSpeed(-1), "Setting speed to -1 did not throw");
+    await Assert.throwsAsync(async () => ossmBle.setSpeed(101), "Setting speed to 101 did not throw");
+
+    ossmBle?.[Symbol.dispose]();
+}
+
+export async function testSetStroke() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+ 
+    await ossmBle.setStroke(100);
+    await ossmBle.setStroke(50);
+    await ossmBle.setStroke(1); // Docs say 0-100 but the device will +1 anything below 100, so 1 is the minimum effective value
+ 
+    await Assert.throwsAsync(async () => ossmBle.setStroke(-1), "Setting stroke to -1 did not throw");
+    await Assert.throwsAsync(async () => ossmBle.setStroke(101), "Setting stroke to 101 did not throw");
+
+    ossmBle?.[Symbol.dispose]();
+}
+
+export async function testSetDepth() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+
+    await ossmBle.setDepth(100);
+    await ossmBle.setDepth(50);
+    await ossmBle.setDepth(1);
+
+    await Assert.throwsAsync(async () => ossmBle.setDepth(-1), "Setting depth to -1 did not throw");
+    await Assert.throwsAsync(async () => ossmBle.setDepth(101), "Setting depth to 101 did not throw");
+ 
+    ossmBle?.[Symbol.dispose]();
+}
+
+export async function testSetSensation() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+
+    await ossmBle.setSensation(100);
+    await ossmBle.setSensation(50);
+    await ossmBle.setSensation(1);
+
+    await Assert.throwsAsync(async () => ossmBle.setSensation(-1), "Setting sensation to -1 did not throw");
+    await Assert.throwsAsync(async () => ossmBle.setSensation(101), "Setting sensation to 101 did not throw");
+    
+    ossmBle?.[Symbol.dispose]();
 }

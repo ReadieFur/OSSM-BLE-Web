@@ -42,11 +42,11 @@ export enum OssmStatus {
     /** Menu idle state */
     MenuIdle = "menu.idle",
     /** Simple penetration mode */
-    SimplePenetration = "simple.penetration",
+    SimplePenetration = "simplePenetration",
     /** Simple penetration idle */
-    SimplePenetrationIdle = "simple.penetration.idle",
+    SimplePenetrationIdle = "simplePenetration.idle",
     /** Pre-flight checks */
-    SimplePenetrationPreflight = "simple.penetration.preflight",
+    SimplePenetrationPreflight = "simplePenetration.preflight",
     /** Stroke engine mode */
     StrokeEngine = "strokeEngine",
     /** Stroke engine idle */

@@ -34,10 +34,10 @@ export class Assert {
             throw new Error(message || "Assertion failed: value is not null or undefined");
     }
 
-    static async throws(fn: () => Promise<void> | void, message?: string): Promise<void> {
+    static throws(fn: () => any, message?: string): void {
         let errorCaught = false;
         try {
-            await fn();
+            fn();
         } catch {
             errorCaught = true;
         }
@@ -45,4 +45,14 @@ export class Assert {
             throw new Error(message || "Expected function to throw an error, but it did not.");
     }
 
+    static async throwsAsync(fn: () => Promise<any>, message?: string): Promise<void> {
+        let errorCaught = false;
+        try {
+            await fn();
+        } catch {
+            errorCaught = true;
+        }
+        if (!errorCaught)
+            throw new Error(message || "Expected async function to throw an error, but it did not.");
+    }
 }
