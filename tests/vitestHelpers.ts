@@ -6,30 +6,15 @@ import { assert, expect } from "vitest";
 
 async function mapBrowserStackToSource<T>(stack: string): Promise<string> {
 	const lines = stack.split("\n");
+	const processedLines: string[] = [];
 
-	// Find the first browser frame
-	const firstBrowserIndex = lines.findIndex((l) =>
-		/http:\/\/localhost:\d+/.test(l)
-	);
-	if (firstBrowserIndex === -1) {
-		// No browser frames
-		return stack;
-	}
-
-	const nodeFrames = lines.slice(0, firstBrowserIndex);
-	const browserFrames = lines.slice(firstBrowserIndex);
-
-	// Browser frames are in reverse order
-	browserFrames.reverse();
-
-	// Attempt to map stack trace for localhost to project source files
-	const remappedBrowserFrames: string[] = [];
-	for (const line of browserFrames) {
-		// Regex to match "http://localhost:3000/file.js:line:col"
+	for (const line of lines) {
+		// Find browser frame (assumed to be served from localhost)
 		const regex = /http:\/\/localhost:\d+\/([^\s:]+):(\d+):(\d+)/;
 		const match = line.match(regex);
+
 		if (!match) {
-			remappedBrowserFrames.push(line);
+			processedLines.push(line);
 			continue;
 		}
 
@@ -48,26 +33,26 @@ async function mapBrowserStackToSource<T>(stack: string): Promise<string> {
 			// Map URL in stack to original TS file
 			if (original.source) {
 				// If the source path is relative, prepend the web url to it (since the project is served from root but the web file may not be resulting in the source path being incorrect).
-				if (!path.isAbsolute(original.source))
-					original.source = path.join(path.dirname(mapFilePath), original.source);
+				let sourcePath = original.source;
+				if (!path.isAbsolute(sourcePath))
+					sourcePath = path.join(path.dirname(mapFilePath), sourcePath);
 
-				remappedBrowserFrames.push(line.replace(
-					fullMatch,
-					`${original.source}:${original.line}:${original.column}`
-				));
+				let remappedLine = line.replace(fullMatch, `${sourcePath}:${original.line}:${original.column}`);
+				if (!remappedLine.startsWith("    at "))
+					remappedLine = "    at " + remappedLine;
+				processedLines.push(remappedLine);
+			} else {
+				processedLines.push(line);
 			}
-			else
-				remappedBrowserFrames.push(line);
 
 			consumer.destroy();
 		} catch {
 			// Ignore errors (e.g, no source map)
-			remappedBrowserFrames.push(line);
+			processedLines.push(line);
 		}
 	}
 
-	// Combine remapped browser frames at the front, then Node frames
-	return [...remappedBrowserFrames, ...nodeFrames].join("\n");
+	return processedLines.join("\n");
 }
 
 export async function pageEvaluate<T>(page: Page, pageFunction: (...args: any[]) => Promise<T> | T, ...args: any[]): Promise<T> {
