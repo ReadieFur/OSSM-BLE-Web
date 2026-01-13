@@ -69,25 +69,18 @@ export enum OssmStatus {
     ErrorHelp = "error.help",
     /** Restart state */
     Restart = "restart",
-}
+};
 
-export interface OssmState {
-    status: OssmStatus;
+export interface OssmPlayData {
     speed: number;
     stroke: number;
     sensation: number;
     depth: number;
-    pattern: KnownPattern;
-};
+    pattern: number;
+}
 
-export enum KnownPattern {
-    SimpleStroke = 0,
-    TeasingPounding = 1,
-    RoboStroke = 2,
-    HalfNHalf = 3,
-    Deeper = 4,
-    StopNGo = 5,
-    Insist = 6,
+export interface OssmState extends OssmPlayData {
+    status: OssmStatus;
 };
 
 export enum OssmPage {
