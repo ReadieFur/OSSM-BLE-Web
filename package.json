@@ -1,0 +1,24 @@
+{
+  "devDependencies": {
+    "@types/web-bluetooth": "^0.0.21",
+    "esbuild": "^0.27.2",
+    "puppeteer": "^24.34.0",
+    "ts-node": "^10.9.2",
+    "tsdown": "^0.19.0",
+    "vitest": "^4.0.16"
+  },
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "clean": "rm -rf dist/*",
+    "build": "ts-node build.config.ts --profile=release",
+    "build:min": "ts-node build.config.ts --profile=release-min",
+    "build:dev": "ts-node build.config.ts --profile=dev --watch",
+    "test": "npm run build && vitest"
+  },
+  "dependencies": {
+    "@parcel/watcher": "^2.5.4",
+    "source-map": "^0.7.6",
+    "typescript": "^5.9.3"
+  }
+}

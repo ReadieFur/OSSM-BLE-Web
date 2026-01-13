@@ -1,0 +1,49 @@
+{
+  "compilerOptions": {
+    // Language settings
+    "target": "esnext",
+    "lib": [
+      "esnext",
+      "dom",
+      "webworker"
+    ],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+
+    // Other
+    "sourceMap": true,
+    "declaration": true,
+    "isolatedDeclarations": true,
+    "removeComments": false,
+
+    // Typechecking
+    "strict": true,
+    "noImplicitAny": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+
+    // Recommended
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+
+    // Misc
+    "preserveWatchOutput": true,
+
+    // esbuild
+    "noEmit": true
+  },
+  "watchOptions": {
+    // Fix for working on network drives
+    "watchFile": "dynamicPriorityPolling",
+    "watchDirectory": "dynamicPriorityPolling",
+    "fallbackPolling": "dynamicpriority"
+  },
+  "include": [
+    "src/**/*.ts",
+    "dev/**/*.ts",
+  ]
+}
