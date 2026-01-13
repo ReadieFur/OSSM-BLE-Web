@@ -13,6 +13,7 @@ const projectBuildOptions: InlineConfig = {
     format: "esm",
     target: ["esnext"],
     clean: true,
+    dts: true,
 };
 
 // Profile overrides
