@@ -1,8 +1,14 @@
 // Reference: https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/BLE_Protocol.md
 
 //#region Imports
-import type { ServicesDefinition, UpperSnakeToCamel } from "./helpers";
-import { AsyncFunctionQueue, delay, DOMExceptionError, upperSnakeToCamel } from "./helpers";
+import {
+    AsyncFunctionQueue,
+    delay,
+    DOMExceptionError,
+    upperSnakeToCamel,
+    type ServicesDefinition,
+    type UpperSnakeToCamel,
+} from "./helpers";
 import {
     OSSM_PAGE_NAVIGATION_GRAPH,
     OssmPage,
@@ -13,6 +19,9 @@ import {
     type OssmPattern,
     type OssmPlayData,
 } from "./ossmBleTypes";
+import {
+    KnownPattern
+} from "./patterns";
 //#endregion
 
 //#region Constants
@@ -52,6 +61,14 @@ type OSSMServices = {
 export class OssmBle implements Disposable {
     //#region Static
     /**
+     * Checks if the current browser supports all the required Web APIs for this library
+     * @returns `true` if supported, `false` otherwise
+     */
+    static isClientSupported(): boolean {
+        return !!navigator.bluetooth;
+    }
+
+    /**
      * Prompts the user via the browser to pair with an OSSM BLE device
      * @requires that the page is served over HTTPS or from localhost & is called by a user gesture
      * @returns BluetoothDevice on successful pairing
@@ -78,6 +95,7 @@ export class OssmBle implements Disposable {
     private lastPoll: number = 0;
     private cachedState: OssmState | null = null;
     private cachedPatternList: OssmPattern[] | null = null;
+    private lastFixedPosition: number | null = null;
     commandProcessDelayMs: number = BASE_COMMAND_PROCESS_DELAY_MS;
 
     private constructor(device: BluetoothDevice) {
@@ -268,7 +286,6 @@ export class OssmBle implements Disposable {
             callbacks.splice(index, 1);
     }
 
-    //#region Raw commands
     /**
      * Set stroke speed percentage
      * @param speed A {@link number} between 0 and 100
@@ -276,8 +293,8 @@ export class OssmBle implements Disposable {
      * @throws DOMException if the command fails
      */
     async setSpeed(speed: number): Promise<void> {
-        if (speed < 0 || speed > 100)
-            throw new RangeError("Speed must be between 0 and 100.");
+        if (speed < 0 || speed > 100 || !Number.isInteger(speed))
+            throw new RangeError("Speed must be an integer between 0 and 100.");
 
         if (this.cachedState?.speed === speed)
             return;
@@ -292,8 +309,8 @@ export class OssmBle implements Disposable {
      * @throws DOMException if the command fails
      */
     async setStroke(stroke: number): Promise<void> {
-        if (stroke < 0 || stroke > 100)
-            throw new RangeError("Stroke must be between 0 and 100.");
+        if (stroke < 0 || stroke > 100 || !Number.isInteger(stroke))
+            throw new RangeError("Stroke must be an integer between 0 and 100.");
 
         if (this.cachedState?.stroke === stroke)
             return;
@@ -312,8 +329,8 @@ export class OssmBle implements Disposable {
      * @throws DOMException if the command fails
      */
     async setDepth(depth: number): Promise<void> {
-        if (depth < 0 || depth > 100)
-            throw new RangeError("Depth must be between 0 and 100.");
+        if (depth < 0 || depth > 100 || !Number.isInteger(depth))
+            throw new RangeError("Depth must be an integer between 0 and 100.");
 
         if (this.cachedState?.depth === depth)
             return;
@@ -332,8 +349,8 @@ export class OssmBle implements Disposable {
      * @throws DOMException if the command fails
      */
     async setSensation(sensation: number): Promise<void> {
-        if (sensation < 0 || sensation > 100)
-            throw new RangeError("Sensation must be between 0 and 100.");
+        if (sensation < 0 || sensation > 100 || !Number.isInteger(sensation))
+            throw new RangeError("Sensation must be an integer between 0 and 100.");
 
         if (this.cachedState?.sensation === sensation)
             return;
@@ -349,10 +366,17 @@ export class OssmBle implements Disposable {
     /**
      * Set stroke pattern (see {@link getPatternList} for available patterns)
      * @param patternId A {@link number} corresponding to a pattern ID (see {@link KnownPattern})
+     * @throws RangeError if patternId is negative or not within the range of patterns (see {@link getPatternList()})
      */
     async setPattern(patternId: number): Promise<void> {
-        if (patternId < 0)
+        if (patternId < 0 || !Number.isInteger(patternId))
             throw new RangeError("Pattern ID must be a non-negative integer.");
+
+        if (this.cachedPatternList === null)
+            await this.getPatternList();
+        if (this.cachedPatternList && !this.cachedPatternList.find(p => p.idx === patternId))
+            throw new RangeError(`Pattern ID ${patternId} is not in the available pattern list.`);
+
         await this.sendCommand(`set:pattern:${patternId}`);
     }
 
@@ -465,9 +489,7 @@ export class OssmBle implements Disposable {
         this.cachedPatternList = patterns;
         return patterns;
     }
-    //#endregion
 
-    //#region State caching & helpers
     /**
      * Emergency stops the OSSM device  
      * @remarks This should not be used to stop normal operations, use {@link setSpeed(setSpeed(0))} instead
@@ -565,6 +587,7 @@ export class OssmBle implements Disposable {
     /**
      * Apply & run a stroke engine pattern by setting speed, stroke, depth, sensation, and pattern in an order designed to reduce jerkiness
      * @param data An {@link OssmPlayData} object containing the desired settings
+     * @requires being on the Stroke Engine page
      */
     async runStrokeEnginePattern(data: OssmPlayData): Promise<void> {
         const min = data.depth - data.stroke;
@@ -616,7 +639,58 @@ export class OssmBle implements Disposable {
             await this.setSensation(data.sensation);
         }
     }
-    //#endregion
+
+    /**
+     * Moves the rod to a specific position percentage
+     * @param position A {@link number} between 0 and 100
+     * @throws RangeError if position is out of range
+     * @requires being on the Stroke Engine page
+     */
+    async moveToPosition(position: number, speed: number): Promise<void> {
+        // Through testing I found a hacky way that I can set the rod to a specific position by using the Insist pattern.
+        
+        const currentState = await this.getState();
+        if (this.getCurrentPage(currentState) !== OssmPage.StrokeEngine)
+            throw new DOMException("Must be on Stroke Engine page to set simple stroke.", DOMExceptionError.InvalidState);
+
+        // Apply settings in a specific order to reduce jerkiness
+        if (currentState.pattern !== KnownPattern.Insist ||
+            currentState.sensation !== 100 ||
+            currentState.stroke !== 100
+        ){
+            // Case: State is not currently configured for this mode, do slower but safer application of settings
+            this.debugLog("setPosition:", "Not pre-configured (slowest)");
+            // Pause before switching and applying new pattern to try and reduce jerkiness
+            await this.setSpeed(0);
+            await this.setPattern(KnownPattern.Insist);
+            await this.setSensation(100);
+            await this.setStroke(100);
+            await this.setDepth(position);
+            await this.setSpeed(speed);
+        } else if (this.lastFixedPosition === currentState.depth) {
+            // Case: State is configured for this mode, the current position is still the same as the last, apply settings directly
+            this.debugLog("setPosition:", "Pre-configured (faster)");
+            await this.setSpeed(speed);
+            await this.setDepth(position);
+        } else {
+            /* Case: Configured for this mode but the current position has changed from the last time this was called
+             * In this case it is not safe to set speed first as it could jerk in the wrong direction.
+             * (Always safe, but slower)
+             */
+            this.debugLog("setPosition:", "Pre-configured (slower)");
+            await this.setSpeed(0);
+            await this.setDepth(position);
+            await this.setSpeed(speed);
+        }
+
+        /* TODO: Find a way to detect what the current position of the device is,
+         * wait until it reaches the desired position,
+         * then set speed to 0 to hold it there.
+         * (Safer than leaving it running in-case of value change or firmware bug)
+         */
+
+        this.lastFixedPosition = position;
+    }
     //#endregion
 
     //#region Debugging tools
@@ -658,4 +732,7 @@ export {
     KnownPattern,
     PatternHelper
 } from "./patterns";
+export {
+    mapRational
+} from "./helpers";
 //#endregion

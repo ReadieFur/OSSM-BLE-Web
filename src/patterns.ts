@@ -45,12 +45,12 @@ export class PatternHelper implements OssmPlayData {
          * - Stroke is a retraction distance, not a centered range.
          */
 
-        if (patternId < 0)
-            throw new RangeError("patternId must be a positive.");
-        if (this.minDepth < 0 || this.minDepth > 100)
-            throw new RangeError("minDepthAbsolute must be between 0 and 100.");
-        if (this.maxDepth < 0 || this.maxDepth > 100)
-            throw new RangeError("maxDepthAbsolute must be between 0 and 100.");
+        if (patternId < 0 || !Number.isInteger(patternId))
+            throw new RangeError("patternId must be a positive integer.");
+        if (this.minDepth < 0 || this.minDepth > 100 || !Number.isInteger(this.minDepth))
+            throw new RangeError("minDepthAbsolute must be an integer between 0 and 100.");
+        if (this.maxDepth < 0 || this.maxDepth > 100 || !Number.isInteger(this.maxDepth))
+            throw new RangeError("maxDepthAbsolute must be an integer between 0 and 100.");
         if (this.minDepth >= this.maxDepth)
             throw new RangeError("minDepthAbsolute must be less than maxDepthAbsolute.");
         if (this.speed < 0 || this.speed > 100)
@@ -64,8 +64,8 @@ export class PatternHelper implements OssmPlayData {
 
         //#region ConfigurablePattern
         if (this.intensity !== undefined) {
-            if (this.intensity < 0 || this.intensity > 100)
-                throw new RangeError("Intensity must be between 0 and 100.");
+            if (this.intensity < 0 || this.intensity > 100 || !Number.isInteger(this.intensity))
+                throw new RangeError("Intensity must be an integer between 0 and 100.");
 
             this.sensation = this.intensity;
         }

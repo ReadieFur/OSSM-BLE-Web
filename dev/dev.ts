@@ -213,12 +213,13 @@ class Dev {
         );
         this.domObjects.push(speedKnobConfigInput);
 
-        const usePatternHelperInput = new BooleanInput(
-            "Use Pattern helper",
-            false,
-            async (value) => this.usePatternHelper(value)
+        const helperModeInput = new RadioInput(
+            "Helper modes:",
+            ["none", "pattern", "position"],
+            "none",
+            async (value) => this.setHelperMode(value)
         );
-        this.domObjects.push(usePatternHelperInput);
+        this.domObjects.push(helperModeInput);
 
         this.pageInput = new RadioInput(
             "Page",
@@ -239,24 +240,34 @@ class Dev {
         this.speedInput = new NumericInput(
             "Speed",
             initialState.speed,
-            async (value) => await this.ossmBle?.setSpeed(value)
+            async (value) => {
+                if (helperModeInput.getValue() === "position")
+                    await this.ossmBle?.moveToPosition(this.depthInput!.getValue(), value);
+                else
+                    await this.ossmBle?.setSpeed(value);
+            }
         );
         this.domObjects.push(this.speedInput);
 
         // Stroke engine inputs
+        this.depthInput = new NumericInput(
+            "Depth",
+            initialState.depth,
+            async (value) => {
+                if (helperModeInput.getValue() === "position")
+                    await this.ossmBle?.moveToPosition(value, this.speedInput!.getValue());
+                else
+                    await this.ossmBle?.setDepth(value);
+            }
+        );
+        this.standardInputObjects.push(this.depthInput);
+
         this.strokeInput = new NumericInput(
             "Stroke",
             initialState.stroke,
             async (value) => await this.ossmBle?.setStroke(value)
         );
         this.standardInputObjects.push(this.strokeInput);
-
-        this.depthInput = new NumericInput(
-            "Depth",
-            initialState.depth,
-            async (value) => await this.ossmBle?.setDepth(value)
-        );
-        this.standardInputObjects.push(this.depthInput);
 
         this.sensationInput = new NumericInput(
             "Sensation",
@@ -299,18 +310,25 @@ class Dev {
         this.standardInputObjects.forEach(obj => document.body.appendChild(obj.container));
         this.patternInputObjects.forEach(obj => document.body.appendChild(obj.container));
 
-        this.usePatternHelper(usePatternHelperInput.getValue());
+        this.setHelperMode(helperModeInput.getValue());
         await this.onStateChanged();
         //#endregion
     }
 
-    usePatternHelper(value: boolean): void {
-        if (value) {
+    setHelperMode(value: string): void {
+        if (value === "pattern") {
             this.standardInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
             this.patternInputObjects.forEach(obj => obj.container.removeAttribute("disabled"));
+            this.strokeInput?.container.removeAttribute("disabled");
+        } else if (value === "position") {
+            this.standardInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
+            this.patternInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
+            this.strokeInput?.container.setAttribute("disabled", "true");
+            this.depthInput?.container.removeAttribute("disabled");
         } else {
             this.standardInputObjects.forEach(obj => obj.container.removeAttribute("disabled"));
             this.patternInputObjects.forEach(obj => obj.container.setAttribute("disabled", "true"));
+            this.strokeInput?.container.removeAttribute("disabled");
         }
     }
 
