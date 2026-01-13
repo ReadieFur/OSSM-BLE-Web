@@ -2,9 +2,6 @@ import { Assert } from "./test.web.js";
 import { OssmBle } from "../dist/ossmBle.js";
 import type { ExposedWindowProperties } from "./ossmBle.test.ts";
 
-document.body.style.backgroundColor = "black";
-document.body.style.color = "white";
-
 interface TestWindow extends Window, ExposedWindowProperties {}
 declare const window: TestWindow;
 
