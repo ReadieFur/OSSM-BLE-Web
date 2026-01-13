@@ -1,5 +1,5 @@
 import { Assert } from "./test.web.js";
-import { OssmBle, OssmEventType, OssmPage, OssmStatus } from "../dist/ossmBle.js";
+import { KnownPattern, OssmBle, OssmEventType, OssmPage, OssmStatus, PatternHelper } from "../dist/ossmBle.js";
 import type { ExposedWindowProperties } from "./ossmBle.test";
 
 interface TestWindow extends Window, ExposedWindowProperties {}
@@ -180,6 +180,46 @@ export async function testNavigateTo() {
 
     await ossmBle.navigateTo(OssmPage.Menu);
     await ossmBle.waitForStatus(OssmStatus.MenuIdle, 1_000);
+
+    ossmBle?.[Symbol.dispose]();
+}
+
+export async function testRunStrokeEnginePattern() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+    await ossmBle.getState();
+
+    const pattern = new PatternHelper(KnownPattern.SimpleStroke, 20, 80, 70);
+
+    // Pattern shouldn't be able to run from the main menu
+    await ossmBle.navigateTo(OssmPage.Menu);
+    Assert.throwsAsync(async () => await ossmBle.runStrokeEnginePattern(pattern));
+
+    // Navigate to stroke engine and run the pattern
+    await ossmBle.navigateTo(OssmPage.StrokeEngine);
+    await ossmBle.waitForStatus(OssmStatus.StrokeEngineIdle, 20_000);
+    await ossmBle.runStrokeEnginePattern(pattern);
+
+    ossmBle?.[Symbol.dispose]();
+}
+
+export async function testMoveToPosition() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+    await ossmBle.getState();
+
+    // Move to position shouldn't be able to run from the main menu
+    await ossmBle.navigateTo(OssmPage.Menu);
+    Assert.throwsAsync(async () => await ossmBle.moveToPosition(50, 100));
+
+    // Navigate to stroke engine and move to position
+    await ossmBle.navigateTo(OssmPage.StrokeEngine);
+    await ossmBle.waitForStatus(OssmStatus.StrokeEngineIdle, 20_000);
+    await ossmBle.moveToPosition(50, 100); //Move to middle at 100% speed
+    await ossmBle.moveToPosition(80, 10); //Move to 80% at 10% speed
+    await ossmBle.moveToPosition(0, 60); //Move to 0% at 60% speed
 
     ossmBle?.[Symbol.dispose]();
 }

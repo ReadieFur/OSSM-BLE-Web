@@ -157,5 +157,8 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 
 	//This test can take a long time due to homing occurring between page navigations
 	test("navigate to", { timeout: 60_000 }, runWebTestImpl);
+
+	test("run stroke engine pattern", { timeout: 30_000 }, runWebTestImpl);
+	test("move to position", { timeout: 30_000 }, runWebTestImpl);
 	//#endregion
 });
