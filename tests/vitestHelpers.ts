@@ -1,7 +1,8 @@
-import puppeteer, { Browser, Page } from "puppeteer";
+import { Page } from "puppeteer";
 import { readFile } from "fs/promises";
 import path from "path";
 import { SourceMapConsumer } from "source-map";
+import { assert, expect } from "vitest";
 
 async function mapBrowserStackToSource<T>(stack: string): Promise<string> {
 	const lines = stack.split("\n");
@@ -80,4 +81,28 @@ export async function pageEvaluate<T>(page: Page, pageFunction: (...args: any[])
 			err.stack = await mapBrowserStackToSource(err.stack);
 		throw err;
 	}
+}
+
+export function runWebTest(page: Page,...args: any[]): Promise<any> {
+	let testName: string = expect.getState().currentTestName!;
+	expect(testName).toBeDefined();
+	testName = testName
+		.trim()
+		.split(/[\s_\-]+/)
+		.filter(Boolean)
+		.map(word => word[0].toUpperCase() + word.slice(1).toLowerCase())
+		.join("");
+	const lastPtrIndex = testName.lastIndexOf(">");
+	if (lastPtrIndex !== -1)
+		testName = testName.slice(lastPtrIndex + 1);
+	testName = `test${testName}`;
+
+	return pageEvaluate(page, async (testName: string, ...args: any[]) => {
+		if ((window as any).WebTests === undefined)
+			throw new Error("WebTests module not loaded.");
+		if (typeof (window as any).WebTests[testName] !== "function")
+			throw new Error(`Web test function "${testName}" not found.`);
+
+		await (window as any).WebTests[testName](...args);
+	}, testName, ...args);
 }

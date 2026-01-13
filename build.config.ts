@@ -26,6 +26,11 @@ const profiles: Record<string, InlineConfig> = {
         dts: {
             sourcemap: true,
         },
+    },
+    test: {
+        dts: {
+            sourcemap: true,
+        }
     }
 };
 
@@ -40,6 +45,19 @@ const devTestingBuildOptions: esbuild.BuildOptions = {
     sourcesContent: false,
     bundle: false,
     outdir: "dev",
+};
+
+const testBuildOptions: esbuild.BuildOptions = {
+    platform: "browser",
+    format: "esm",
+    target: ["esnext"],
+    entryPoints: await fs.promises.readdir("tests").then(files =>
+        files.filter(f => f.endsWith(".web.ts")).map(f => `tests/${f}`)
+    ),
+    sourcemap: true,
+    sourcesContent: false,
+    bundle: false,
+    outdir: "tests",
 };
 //#endregion
 
@@ -69,6 +87,10 @@ async function build(): Promise<void> {
         // Build dev tools if required
         if (isDevProfile)
             await esbuild.build(devTestingBuildOptions);
+
+        // Build test files if required
+        if (profile === "test")
+            await esbuild.build(testBuildOptions);
     } catch (error) {
         throw error;
     }

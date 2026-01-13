@@ -14,7 +14,8 @@
     "build": "ts-node build.config.ts --profile=release",
     "build:min": "ts-node build.config.ts --profile=release-min",
     "build:dev": "ts-node build.config.ts --profile=dev --watch",
-    "test": "npm run build && vitest"
+    "build:test": "ts-node build.config.ts --profile=test",
+    "test": "npm run build:test && vitest"
   },
   "dependencies": {
     "@parcel/watcher": "^2.5.4",
