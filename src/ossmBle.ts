@@ -18,7 +18,7 @@ import {
     type OssmState,
     type OssmPattern,
     type OssmPlayData,
-    type OSSMEventCallbackParameters,
+    type OssmEventCallbackParameters,
 } from "./ossmBleTypes";
 import {
     KnownPattern
@@ -113,7 +113,7 @@ export class OssmBle implements Disposable {
     //#endregion
 
     //#region Instance methods (private)
-    private async dispatchEvent(data: OSSMEventCallbackParameters): Promise<void> {
+    private async dispatchEvent(data: OssmEventCallbackParameters): Promise<void> {
         const callbacks = this.eventCallbacks.get(data.event);
         if (callbacks)
             for (const callback of callbacks)
@@ -734,6 +734,7 @@ export {
     OssmEventType,
     OssmStatus,
     type OssmEventCallback,
+    type OssmEventCallbackParameters,
     type OssmState,
     type OssmPattern,
 } from "./ossmBleTypes";

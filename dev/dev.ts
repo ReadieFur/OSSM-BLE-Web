@@ -2,7 +2,7 @@
 
 //@ts-ignore
 import { KnownPattern, OssmBle, OssmEventType, OssmPage, PatternHelper } from "../dist/ossmBle.js";
-import type { OSSMEventCallbackParameters, OssmPlayData } from "../src/ossmBleTypes";
+import type { OssmEventCallbackParameters, OssmPlayData } from "../src/ossmBleTypes";
 
 abstract class Input<T> {
     public readonly container: HTMLDivElement = document.createElement("div");
@@ -359,15 +359,15 @@ class Dev {
         ));
     }
 
-    async onConnected(data: OSSMEventCallbackParameters): Promise<void> {
+    async onConnected(data: OssmEventCallbackParameters): Promise<void> {
         this.domObjects.forEach(obj => obj.container.attributes.removeNamedItem("disabled"));
     }
 
-    async onDisconnected(data: OSSMEventCallbackParameters): Promise<void> {
+    async onDisconnected(data: OssmEventCallbackParameters): Promise<void> {
         this.domObjects.forEach(obj => obj.container.attributes.setNamedItem(document.createAttribute("disabled")));
     }
 
-    async onStateChanged(data: OSSMEventCallbackParameters): Promise<void> {
+    async onStateChanged(data: OssmEventCallbackParameters): Promise<void> {
         if (!this.ossmBle || this.updatingProperties)
             return;
 

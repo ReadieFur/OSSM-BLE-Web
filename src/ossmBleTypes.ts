@@ -16,7 +16,7 @@ export enum OssmEventType {
     StateChanged
 };
 
-export type OSSMEventCallbackParameters = {
+export type OssmEventCallbackParameters = {
     event: OssmEventType;
     // [OssmEventType.Connected]?: null;
     // [OssmEventType.Disconnected]?: null;
@@ -26,7 +26,7 @@ export type OSSMEventCallbackParameters = {
     }
 };
 
-export type OssmEventCallback = (data: OSSMEventCallbackParameters) => Promise<any> | any;
+export type OssmEventCallback = (data: OssmEventCallbackParameters) => Promise<any> | any;
 
 export enum OssmStatus {
     /** Initializing */
