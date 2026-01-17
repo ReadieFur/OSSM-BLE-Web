@@ -66,7 +66,7 @@ export class OssmBle implements Disposable {
      * @returns `true` if supported, `false` otherwise
      */
     static isClientSupported(): boolean {
-        return !!navigator.bluetooth;
+        return !navigator.bluetooth || !navigator.bluetooth.requestDevice;
     }
 
     /**
