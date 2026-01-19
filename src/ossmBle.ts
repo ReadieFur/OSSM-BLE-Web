@@ -66,7 +66,7 @@ export class OssmBle implements Disposable {
      * @returns `true` if supported, `false` otherwise
      */
     static isClientSupported(): boolean {
-        return !navigator.bluetooth || !navigator.bluetooth.requestDevice;
+        return !(!navigator.bluetooth || !navigator.bluetooth.requestDevice);
     }
 
     /**
@@ -95,6 +95,7 @@ export class OssmBle implements Disposable {
     private ossmServices: OSSMServices | null = null;
     private lastPoll: number = 0;
     private cachedState: OssmState | null = null;
+    private pendingStateTarget: Partial<OssmState> = {};
     private cachedPatternList: OssmPattern[] | null = null;
     private lastFixedPosition: number | null = null;
     commandProcessDelayMs: number = BASE_COMMAND_PROCESS_DELAY_MS;
@@ -194,11 +195,19 @@ export class OssmBle implements Disposable {
         }
     }
 
+    private isIntermediateValue(key: keyof OssmState, incoming: any, expected: any): boolean {
+        // TODO: Expand this to allow checking on other data types.
+        if (typeof incoming !== "number" || typeof expected !== "number")
+            return false;
+        return incoming === expected - 1;
+    }
+
     private onCurrentStateChanged(event: Event): void {
         this.lastPoll = Date.now();
 
         const oldState = this.cachedState;
 
+        // Get new state
         type JsonState = Omit<OssmState, "status"> & {
             state: OssmStatus;
         };
@@ -206,38 +215,71 @@ export class OssmBle implements Disposable {
         const { state, ...rest } = jsonStateObj;
         const remappedStateObj: OssmState = { status: state, ...rest };
         
-        if (oldState && JSON.stringify(oldState) === JSON.stringify(remappedStateObj))
-            return; // No change in state, ignore.
+        // Check if anything has changed (since this event will fire every second even if nothing changes)
+        // const whatsChanged: Partial<OssmState> = {};
+        let hasChanged = false;
+        for (const k in remappedStateObj) {
+            const key = k as keyof OssmState;
+            if (remappedStateObj[key] !== oldState?.[key]) {
+                hasChanged = true;
+                // whatsChanged[key] = remappedStateObj[key];
+                break;
+            }
+        }
+        if (!hasChanged)
+            return; // No changes
+
+        // Test if event should fire
+        let sawIntermediate = false;
+        let sawExternalChange = false;
+        if (Object.keys(this.pendingStateTarget).length > 0) {
+            for (const k in this.pendingStateTarget) {
+                const key = k as keyof OssmState;
+                const expected = this.pendingStateTarget[key]!;
+                const incoming = remappedStateObj[key];
+
+                if (incoming === expected)
+                    continue; // Settled for this key
+
+                if (this.isIntermediateValue(key, incoming, expected)) {
+                    sawIntermediate = true;
+                    continue;
+                }
+
+                // External change
+                sawExternalChange = true;
+            }
+
+            // External change invalidates pending targets
+            if (sawExternalChange)
+                for (const k in this.pendingStateTarget)
+                    delete this.pendingStateTarget[k as keyof OssmState];
+
+            if (sawIntermediate && !sawExternalChange)
+                return; // Suppress event because we are still settling
+        }
+
+        /* Only emit the event if:
+         * No pending targets are set
+         * Or an external change was detected
+         * Or all pending targets have been settled
+         */
+
+        // Update state and fire event callbacks
         this.cachedState = remappedStateObj;
 
         this.debugLogTable({
             "New state": remappedStateObj,
-            "Old state": this.cachedState
+            // "Old state": this.cachedState
         });
 
         this.dispatchEvent({
             event: OssmEventType.StateChanged,
             [OssmEventType.StateChanged]: {
                 newState: remappedStateObj,
-                oldState: oldState
+                // oldState: oldState
             }
         });
-    }
-
-    private async sendCommand(value: string): Promise<void> {
-        this.throwIfNotReady();
-
-        const returnedValue = await this.bleTaskQueue.enqueue(async () => {
-            await this.ossmServices!.primary.characteristics.command.writeValue(TEXT_ENCODER.encode(value));
-            await delay(this.commandProcessDelayMs); // Give OSSM time to process the command.
-            return TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.command.readValue()).buffer) as string;
-        });
-
-        if (returnedValue === `fail:${value}`) {
-            throw new DOMException(`OSSM failed to process command: ${value}`, DOMExceptionError.OperationError);
-        } else if (returnedValue !== `${value}`) {
-            throw new DOMException(`OSSM returned unexpected response for command "${value}": ${returnedValue}`, DOMExceptionError.DataError);
-        }
     }
     //#endregion
 
@@ -266,6 +308,40 @@ export class OssmBle implements Disposable {
             this.stop().finally(doDisconnect);
         else
             doDisconnect();
+    }
+
+    /**
+     * Send a raw command to the OSSM device
+     * @param value The command string to send
+     * @param speedup When `true`, the command is sent without waiting for and validating the response
+     */
+    async sendCommand(value: string, speedup: boolean = false): Promise<void> {
+        this.throwIfNotReady();
+
+        if (speedup) {
+            await this.ossmServices!.primary.characteristics.command.writeValue(TEXT_ENCODER.encode(value));
+            return;
+        }
+
+        const returnedValue = await this.bleTaskQueue.enqueue(async () => {
+            await this.ossmServices!.primary.characteristics.command.writeValue(TEXT_ENCODER.encode(value));
+            await delay(this.commandProcessDelayMs); // Give OSSM time to process the command.
+            return TEXT_DECODER.decode((await this.ossmServices!.primary.characteristics.command.readValue()).buffer) as string;
+        });
+
+        if (returnedValue === `fail:${value}`) {
+            throw new DOMException(`OSSM failed to process command: ${value}`, DOMExceptionError.OperationError);
+        } else if (returnedValue !== `${value}`) {
+            throw new DOMException(`OSSM returned unexpected response for command "${value}": ${returnedValue}`, DOMExceptionError.DataError);
+        }
+    }
+
+    /**
+     * Checks whether automatic reconnection will occur upon disconnection
+     * @returns `true` if auto-reconnect is enabled, `false` otherwise
+     */
+    willAutoReconnect(): boolean {
+        return this.autoReconnect;
     }
 
     /**
@@ -305,6 +381,8 @@ export class OssmBle implements Disposable {
 
         if (this.cachedState?.speed === speed)
             return;
+        
+        this.debugLog(`Setting speed to ${speed}`);
 
         await this.sendCommand(`set:speed:${speed}`);
     }
@@ -318,15 +396,17 @@ export class OssmBle implements Disposable {
     async setStroke(stroke: number): Promise<void> {
         if (stroke < 0 || stroke > 100 || !Number.isInteger(stroke))
             throw new RangeError("Stroke must be an integer between 0 and 100.");
-
+        
         if (this.cachedState?.stroke === stroke)
             return;
 
-        // For some reason the device will +1 whatever value is set here so we subtract 1 to compensate.
-        if (stroke > 0 && stroke < 100)
-            stroke -= 1;
+        this.debugLog(`Setting stroke to ${stroke}`);
 
-        await this.sendCommand(`set:stroke:${stroke}`);
+        // For some reason the device will +1 whatever value is set here so we subtract 1 to compensate.
+        this.pendingStateTarget.stroke = stroke;
+
+        const apiValue = stroke > 0 && stroke < 100 ? stroke - 1 : stroke;
+        await this.sendCommand(`set:stroke:${apiValue}`);
     }
 
     /**
@@ -342,11 +422,13 @@ export class OssmBle implements Disposable {
         if (this.cachedState?.depth === depth)
             return;
 
-        // Same +1 quirk as stroke (see {@link setStroke})
-        if (depth > 0 && depth < 100)
-            depth -= 1;
+        this.debugLog(`Setting depth to ${depth}`);
 
-        await this.sendCommand(`set:depth:${depth}`);
+        // Same +1 quirk as stroke (see {@link setStroke})
+        this.pendingStateTarget.depth = depth;
+
+        const apiValue = depth > 0 && depth < 100 ? depth - 1 : depth;
+        await this.sendCommand(`set:depth:${apiValue}`);
     }
 
     /**
@@ -362,12 +444,14 @@ export class OssmBle implements Disposable {
         if (this.cachedState?.sensation === sensation)
             return;
 
+        this.debugLog(`Setting sensation to ${sensation}`);
+
         // Same +1 quirk as stroke (see {@link setStroke})
         // Can't be 0 because the device always +1s it, documentation says it should be allowed to be 0 though, so not checking against at here
-        if (sensation > 0 && sensation < 100)
-            sensation -= 1;
+        this.pendingStateTarget.sensation = sensation;
 
-        await this.sendCommand(`set:sensation:${sensation}`);
+        const apiValue = sensation > 0 && sensation < 100 ? sensation - 1 : sensation;
+        await this.sendCommand(`set:sensation:${apiValue}`);
     }
 
     /**
