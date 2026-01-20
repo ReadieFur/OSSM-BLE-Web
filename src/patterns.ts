@@ -51,7 +51,7 @@ export class PatternHelper implements OssmPlayData {
             throw new RangeError("minDepthAbsolute must be an integer between 0 and 100.");
         if (this.maxDepth < 0 || this.maxDepth > 100 || !Number.isInteger(this.maxDepth))
             throw new RangeError("maxDepthAbsolute must be an integer between 0 and 100.");
-        if (this.minDepth >= this.maxDepth)
+        if (this.minDepth > this.maxDepth)
             throw new RangeError("minDepthAbsolute must be less than maxDepthAbsolute.");
         if (this.speed < 0 || this.speed > 100)
             throw new RangeError("Speed must be between 0 and 100.");
