@@ -202,6 +202,22 @@ export class OssmBle implements Disposable {
         return incoming === expected - 1;
     }
 
+    private waitForPendingTargetsToSettle(timeout: number = Number.POSITIVE_INFINITY): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const startTime = Date.now();
+            const checkInterval = setInterval(() => {
+                if (Object.keys(this.pendingStateTarget).length === 0) {
+                    clearInterval(checkInterval);
+                    resolve();
+                }
+            }, 50);
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                reject(new Error("Timeout waiting for pending targets to settle"));
+            }, timeout);
+        });
+    }
+
     private onCurrentStateChanged(event: Event): void {
         this.lastPoll = Date.now();
 
@@ -216,47 +232,46 @@ export class OssmBle implements Disposable {
         const remappedStateObj: OssmState = { status: state, ...rest };
         
         // Check if anything has changed (since this event will fire every second even if nothing changes)
-        // const whatsChanged: Partial<OssmState> = {};
-        let hasChanged = false;
+        const whatsChanged: Partial<OssmState> = {};
         for (const k in remappedStateObj) {
             const key = k as keyof OssmState;
             if (remappedStateObj[key] !== oldState?.[key]) {
-                hasChanged = true;
-                // whatsChanged[key] = remappedStateObj[key];
-                break;
+                whatsChanged[key] = remappedStateObj[key] as any;
             }
         }
-        if (!hasChanged)
+        if (Object.keys(whatsChanged).length === 0)
             return; // No changes
 
-        // Test if event should fire
-        let sawIntermediate = false;
-        let sawExternalChange = false;
-        if (Object.keys(this.pendingStateTarget).length > 0) {
-            for (const k in this.pendingStateTarget) {
-                const key = k as keyof OssmState;
-                const expected = this.pendingStateTarget[key]!;
-                const incoming = remappedStateObj[key];
+        // Check if we should ignore this update due to pending target states
+        for (const k in this.pendingStateTarget) {
+            const key = k as keyof OssmState;
+            const pendingTarget = this.pendingStateTarget[key];
+            const changedValue = whatsChanged[key];
 
-                if (incoming === expected)
-                    continue; // Settled for this key
+            if (pendingTarget === undefined || changedValue === undefined)
+                continue;
 
-                if (this.isIntermediateValue(key, incoming, expected)) {
-                    sawIntermediate = true;
-                    continue;
-                }
-
-                // External change
-                sawExternalChange = true;
+            if (changedValue === pendingTarget) {
+                // Target reached, clear pending target
+                delete this.pendingStateTarget[key];
+                this.debugLog(`Pending target for ${key} reached: ${changedValue}`);
+                continue;
             }
 
-            // External change invalidates pending targets
-            if (sawExternalChange)
-                for (const k in this.pendingStateTarget)
-                    delete this.pendingStateTarget[k as keyof OssmState];
+            if (this.isIntermediateValue(key, changedValue, pendingTarget)) {
+                // Intermediate value detected, wait for next update
+                this.debugLog(`Pending target for ${key} not yet reached (intermediate value): ${changedValue} (target: ${pendingTarget})`);
+                return;
+            }
 
-            if (sawIntermediate && !sawExternalChange)
-                return; // Suppress event because we are still settling
+            // Value changed externally, clear pending target
+            this.debugLog(`Pending target for ${key} cleared due to external change: ${changedValue} (target was: ${pendingTarget})`);
+            delete this.pendingStateTarget[key];
+        }
+
+        if (Object.keys(this.pendingStateTarget).length > 0) {
+            this.debugLog("Pending targets remain, waiting for next update.");
+            return;
         }
 
         /* Only emit the event if:
@@ -384,7 +399,14 @@ export class OssmBle implements Disposable {
         
         this.debugLog(`Setting speed to ${speed}`);
 
-        await this.sendCommand(`set:speed:${speed}`);
+        this.pendingStateTarget.speed = speed;
+
+        try {
+            await this.sendCommand(`set:speed:${speed}`);
+        } finally {
+            // If the command fails, we still want to clear the pending target to avoid blocking further commands.
+            delete this.pendingStateTarget.speed;
+        }
     }
 
     /**
@@ -406,7 +428,12 @@ export class OssmBle implements Disposable {
         this.pendingStateTarget.stroke = stroke;
 
         const apiValue = stroke > 0 && stroke < 100 ? stroke - 1 : stroke;
-        await this.sendCommand(`set:stroke:${apiValue}`);
+
+        try {
+            await this.sendCommand(`set:stroke:${apiValue}`);
+        } finally {
+            delete this.pendingStateTarget.stroke;
+        }
     }
 
     /**
@@ -428,7 +455,12 @@ export class OssmBle implements Disposable {
         this.pendingStateTarget.depth = depth;
 
         const apiValue = depth > 0 && depth < 100 ? depth - 1 : depth;
-        await this.sendCommand(`set:depth:${apiValue}`);
+
+        try {
+            await this.sendCommand(`set:depth:${apiValue}`);
+        } finally {
+            delete this.pendingStateTarget.depth;
+        }
     }
 
     /**
@@ -451,7 +483,12 @@ export class OssmBle implements Disposable {
         this.pendingStateTarget.sensation = sensation;
 
         const apiValue = sensation > 0 && sensation < 100 ? sensation - 1 : sensation;
-        await this.sendCommand(`set:sensation:${apiValue}`);
+
+        try {
+            await this.sendCommand(`set:sensation:${apiValue}`);
+        } finally {
+            delete this.pendingStateTarget.sensation;
+        }
     }
 
     /**
@@ -468,7 +505,18 @@ export class OssmBle implements Disposable {
         if (this.cachedPatternList && !this.cachedPatternList.find(p => p.idx === patternId))
             throw new RangeError(`Pattern ID ${patternId} is not in the available pattern list.`);
 
-        await this.sendCommand(`set:pattern:${patternId}`);
+        if (this.cachedState?.pattern === patternId)
+            return;
+
+        this.debugLog(`Setting pattern to ID ${patternId}`);
+
+        this.pendingStateTarget.pattern = patternId;
+
+        try {
+            await this.sendCommand(`set:pattern:${patternId}`);
+        } finally {
+            delete this.pendingStateTarget.pattern;
+        }
     }
 
     /**
@@ -700,34 +748,55 @@ export class OssmBle implements Disposable {
             // await this.waitForStatus(OssmStatus.StrokeEngineIdle, 5000);
         }
 
-        // Check if we are on the correct pattern
-        if (currentPattern !== data.pattern)
-            await this.setPattern(data.pattern);
+        // We need to check and set the pending states ahead of time here since we are applying multiple commands in sequence which may throw off external event callbacks.
+        if (capturedState.pattern !== data.pattern)
+            this.pendingStateTarget.pattern = data.pattern;
+        if (capturedState.speed !== data.speed)
+            this.pendingStateTarget.speed = data.speed;
+        if (capturedState.stroke !== data.stroke)
+            this.pendingStateTarget.stroke = data.stroke;
+        if (capturedState.depth !== data.depth)
+            this.pendingStateTarget.depth = data.depth;
+        if (capturedState.sensation !== data.sensation)
+            this.pendingStateTarget.sensation = data.sensation;
 
-        // Queue in a specific order to try and reduce jerkiness (we want to avoid sudden extension with increased speed)
-        if (data.speed < oldSpeed) {
-            // Always safe case (down in speed, range change doesn't matter)
-            this.debugLog("strokeEngineSetSimpleStroke:", "Safe case: Decreasing speed");
-            await this.setSpeed(data.speed);
-            await this.setDepth(data.depth);
-            await this.setStroke(data.stroke);
-            await this.setSensation(data.sensation);
-        } else if (data.speed > oldSpeed && (min < oldMin || data.depth > oldMax)) {
-            /* Potentially risky case detected (fast + extended motion)
-             * To mitigate risk, we first apply depth/stroke changes at old speed, then increase speed.
-             */
-            this.debugLog("strokeEngineSetSimpleStroke:", "Risky case: Increasing speed with extended range");
-            await this.setDepth(data.depth);
-            await this.setStroke(data.stroke);
-            await this.setSpeed(data.speed);
-            await this.setSensation(data.sensation);
-        } else {
-            // Neutral case.
-            this.debugLog("strokeEngineSetSimpleStroke:", "Neutral case");
-            await this.setDepth(data.depth);
-            await this.setStroke(data.stroke);
-            await this.setSpeed(data.speed);
-            await this.setSensation(data.sensation);
+        try {
+            // Check if we are on the correct pattern
+            if (currentPattern !== data.pattern)
+                await this.setPattern(data.pattern);
+
+            // Queue in a specific order to try and reduce jerkiness (we want to avoid sudden extension with increased speed)
+            if (data.speed < oldSpeed) {
+                // Always safe case (down in speed, range change doesn't matter)
+                this.debugLog("runStrokeEnginePattern:", "Safe case: Decreasing speed");
+                await this.setSpeed(data.speed);
+                await this.setDepth(data.depth);
+                await this.setStroke(data.stroke);
+                await this.setSensation(data.sensation);
+            } else if (data.speed > oldSpeed && (min < oldMin || data.depth > oldMax)) {
+                /* Potentially risky case detected (fast + extended motion)
+                * To mitigate risk, we first apply depth/stroke changes at old speed, then increase speed.
+                */
+                this.debugLog("runStrokeEnginePattern:", "Risky case: Increasing speed with extended range");
+                await this.setDepth(data.depth);
+                await this.setStroke(data.stroke);
+                await this.setSpeed(data.speed);
+                await this.setSensation(data.sensation);
+            } else {
+                // Neutral case.
+                this.debugLog("runStrokeEnginePattern:", "Neutral case");
+                await this.setDepth(data.depth);
+                await this.setStroke(data.stroke);
+                await this.setSpeed(data.speed);
+                await this.setSensation(data.sensation);
+            }
+        } finally {
+            // Clear pending targets
+            delete this.pendingStateTarget.pattern;
+            delete this.pendingStateTarget.speed;
+            delete this.pendingStateTarget.stroke;
+            delete this.pendingStateTarget.depth;
+            delete this.pendingStateTarget.sensation;
         }
     }
 
@@ -748,30 +817,76 @@ export class OssmBle implements Disposable {
         if (currentState.pattern !== KnownPattern.Insist ||
             currentState.sensation !== 100 ||
             currentState.stroke !== 100
-        ){
+        ) {
             // Case: State is not currently configured for this mode, do slower but safer application of settings
             this.debugLog("setPosition:", "Not pre-configured (slowest)");
-            // Pause before switching and applying new pattern to try and reduce jerkiness
-            await this.setSpeed(0);
-            await this.setPattern(KnownPattern.Insist);
-            await this.setSensation(100);
-            await this.setStroke(100);
-            await this.setDepth(position);
-            await this.setSpeed(speed);
+
+            try {
+                this.pendingStateTarget.speed = 0;
+                this.pendingStateTarget.pattern = KnownPattern.Insist;
+
+                // Pause before switching and applying new pattern to try and reduce jerkiness
+                await this.setSpeed(0);
+                await this.setPattern(KnownPattern.Insist);
+            } finally {
+                delete this.pendingStateTarget.speed;
+                delete this.pendingStateTarget.pattern;
+            }
+
+            try {
+                this.pendingStateTarget.sensation = 100;
+                this.pendingStateTarget.stroke = 100;
+                this.pendingStateTarget.depth = position;
+                this.pendingStateTarget.speed = speed;
+
+                await this.setSensation(100);
+                await this.setStroke(100);
+                await this.setDepth(position);
+                await this.setSpeed(speed);
+            } finally {
+                delete this.pendingStateTarget.sensation;
+                delete this.pendingStateTarget.stroke;
+                delete this.pendingStateTarget.depth;
+                delete this.pendingStateTarget.speed;
+            }
         } else if (this.lastFixedPosition === currentState.depth) {
             // Case: State is configured for this mode, the current position is still the same as the last, apply settings directly
             this.debugLog("setPosition:", "Pre-configured (faster)");
-            await this.setSpeed(speed);
-            await this.setDepth(position);
+
+            try {
+                this.pendingStateTarget.speed = speed;
+                this.pendingStateTarget.depth = position;
+
+                await this.setSpeed(speed);
+                await this.setDepth(position);
+            } finally {
+                delete this.pendingStateTarget.speed;
+                delete this.pendingStateTarget.depth;
+            }
         } else {
             /* Case: Configured for this mode but the current position has changed from the last time this was called
              * In this case it is not safe to set speed first as it could jerk in the wrong direction.
              * (Always safe, but slower)
              */
             this.debugLog("setPosition:", "Pre-configured (slower)");
-            await this.setSpeed(0);
-            await this.setDepth(position);
-            await this.setSpeed(speed);
+
+            try {
+                this.pendingStateTarget.speed = 0;
+                await this.setSpeed(0);
+            } finally {
+                delete this.pendingStateTarget.speed;
+            }
+
+            try {
+                this.pendingStateTarget.depth = position;
+                this.pendingStateTarget.speed = speed;
+
+                await this.setDepth(position);
+                await this.setSpeed(speed);
+            } finally {
+                delete this.pendingStateTarget.depth;
+                delete this.pendingStateTarget.speed;
+            }
         }
 
         this.lastFixedPosition = position;
@@ -783,6 +898,87 @@ export class OssmBle implements Disposable {
          * Additionally with this pattern if a new depth is set while it is still moving it will wait until it reaches the previous target before moving to the new one,
          * by setting the speed to 0 first this can be avoided, but that depends on being able to detect the current position.
          */
+    }
+
+    /**
+     * Batch set multiple OssmPlayData settings in one go.  
+     * *Note:* It is advised you use runStrokeEnginePattern where possible instead of this method to apply settings in a safe order.
+     * @param data An array of tuples containing the key and value to set
+     * @throws Error if the same key is set multiple times in the batch
+     */
+    async batchSet(data: Array<[keyof OssmPlayData, number]>): Promise<void> {
+        let speed: number | undefined;
+        let stroke: number | undefined;
+        let sensation: number | undefined;
+        let depth: number | undefined;
+        let pattern: number | undefined;
+
+        for (const [key, value] of data) {
+            switch (key) {
+                case "speed":
+                    if (speed !== undefined) throw new Error("Speed has already been set in this batch.");
+                    speed = value;
+                    break;
+                case "stroke":
+                    if (stroke !== undefined) throw new Error("Stroke has already been set in this batch.");
+                    stroke = value;
+                    break;
+                case "sensation":
+                    if (sensation !== undefined) throw new Error("Sensation has already been set in this batch.");
+                    sensation = value;
+                    break;
+                case "depth":
+                    if (depth !== undefined) throw new Error("Depth has already been set in this batch.");
+                    depth = value;
+                    break;
+                case "pattern":
+                    if (pattern !== undefined) throw new Error("Pattern has already been set in this batch.");
+                    pattern = value;
+                    break;
+            }
+        }
+
+        const capturedState = await this.getState();
+
+        if (speed !== undefined && capturedState.speed !== speed)
+            this.pendingStateTarget.speed = speed;
+        if (stroke !== undefined && capturedState.stroke !== stroke)
+            this.pendingStateTarget.stroke = stroke;
+        if (sensation !== undefined && capturedState.sensation !== sensation)
+            this.pendingStateTarget.sensation = sensation;
+        if (depth !== undefined && capturedState.depth !== depth)
+            this.pendingStateTarget.depth = depth;
+        if (pattern !== undefined && capturedState.pattern !== pattern)
+            this.pendingStateTarget.pattern = pattern;
+
+        try {
+            // Apply in supplied order
+            for (const [key, value] of data) {
+                switch (key) {
+                    case "speed":
+                        await this.setSpeed(value);
+                        break;
+                    case "stroke":
+                        await this.setStroke(value);
+                        break;
+                    case "sensation":
+                        await this.setSensation(value);
+                        break;
+                    case "depth":
+                        await this.setDepth(value);
+                        break;
+                    case "pattern":
+                        await this.setPattern(value);
+                        break;
+                }
+            }
+        } finally {
+            delete this.pendingStateTarget.speed;
+            delete this.pendingStateTarget.stroke;
+            delete this.pendingStateTarget.sensation;
+            delete this.pendingStateTarget.depth;
+            delete this.pendingStateTarget.pattern;
+        }
     }
     //#endregion
 
