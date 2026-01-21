@@ -22,7 +22,7 @@ export type OssmEventCallbackParameters = {
     // [OssmEventType.Disconnected]?: null;
     [OssmEventType.StateChanged]?: {
         newState: OssmState;
-        oldState: OssmState | null;
+        // oldState: OssmState | null;
     }
 };
 

@@ -161,5 +161,8 @@ describe.sequential("OSSM BLE", { timeout: 10_000 }, () => {
 
 	test("run stroke engine pattern", { timeout: 30_000 }, runWebTestImpl);
 	test("move to position", { timeout: 30_000 }, runWebTestImpl);
+
+	test("stroke engine pattern event order", { timeout: 30_000 }, runWebTestImpl);
+	test("batch set", { timeout: 20_000 }, runWebTestImpl);
 	//#endregion
 });

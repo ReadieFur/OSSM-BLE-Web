@@ -237,3 +237,63 @@ export async function testMoveToPosition() {
 
     ossmBle?.[Symbol.dispose]();
 }
+
+export async function testStrokeEnginePatternEventOrder() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+    
+    const capturedState = await ossmBle.getState();
+    if (capturedState.status !== OssmStatus.StrokeEngineIdle) {
+        await ossmBle.navigateTo(OssmPage.StrokeEngine);
+        await ossmBle.waitForStatus(OssmStatus.StrokeEngineIdle, 20_000);
+    }
+
+    console.log("=== PATTERN 1 ===");
+
+    const pattern1 = new PatternHelper(KnownPattern.SimpleStroke, 0, 20, 20);
+    await ossmBle.runStrokeEnginePattern(pattern1);
+    await new Promise(r => setTimeout(r, 1_000)); // Wait a bit to ensure all events are processed
+    
+    console.log("=== PATTERN 2 ===");
+
+    let i = 0;
+    ossmBle.addEventListener(OssmEventType.StateChanged, (event) => {
+        i++;
+        console.log(`StateChanged event ${i}`);
+    });
+
+    const pattern2 = new PatternHelper(KnownPattern.SimpleStroke, 0, 10, 10);
+    await ossmBle.runStrokeEnginePattern(pattern2);
+
+    await new Promise(r => setTimeout(r, 1_000));
+    Assert.equals(i, 1);
+}
+
+export async function testBatchSet() {
+    const ossmBle = await CreateOssmBleInstance();
+    await ossmBle.begin();
+    await ossmBle.waitForReady();
+
+    const capturedState = await ossmBle.getState();
+    if (capturedState.status !== OssmStatus.StrokeEngineIdle) {
+        await ossmBle.navigateTo(OssmPage.StrokeEngine);
+        await ossmBle.waitForStatus(OssmStatus.StrokeEngineIdle, 20_000);
+    }
+
+    let i = 0;
+    ossmBle.addEventListener(OssmEventType.StateChanged, (event) => {
+        i++;
+        console.log(`StateChanged event ${i}`);
+    });
+
+    await ossmBle.batchSet([
+        ["pattern", KnownPattern.SimpleStroke],
+        ["depth", 20],
+        ["stroke", 20],
+        ["speed", 10],
+    ]);
+
+    await new Promise(r => setTimeout(r, 1_000));
+    Assert.equals(i, 1);
+}
