@@ -1,0 +1,38 @@
+# .github/workflows/publish.yml
+name: Publish Release
+
+# Disabled for now
+on:
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - main
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run production build
+        run: npm run build:min
+
+      - name: Verify output files
+        run: |
+          ls -lah dist/
+          test -f dist/ossmBle.js
+          test -f dist/ossmBle.d.ts
