@@ -61,6 +61,12 @@ type OSSMServices = {
 
 export class OssmBle implements Disposable {
     //#region Static
+    static readonly LIB_VERSION = {
+        MAJOR: 1,
+        MINOR: 1,
+        PATCH: 2
+    };
+
     /**
      * Checks if the current browser supports all the required Web APIs for this library
      * @returns `true` if supported, `false` otherwise
@@ -670,6 +676,12 @@ export class OssmBle implements Disposable {
      * @param timeout Maximum time to wait for a state update in milliseconds. Defaults to infinity.
      */
     async getState(timeout: number = Number.POSITIVE_INFINITY): Promise<OssmState> {
+        if (this.cachedState === null)
+        {
+            //Fetch state, callback handler will process it.
+            await this.ossmServices!.primary.characteristics.currentState.readValue();
+        }
+
         const startTime = Date.now();
         while (!this.isReady || !this.cachedState) {
             if (Date.now() - startTime > timeout)
