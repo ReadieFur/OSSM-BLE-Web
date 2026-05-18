@@ -190,7 +190,6 @@ class Dev {
 
         this.ossmBle.addEventListener(OssmEventType.Connected, d => this.onConnected(d));
         this.ossmBle.addEventListener(OssmEventType.Disconnected, d => this.onDisconnected(d));
-        this.ossmBle.addEventListener(OssmEventType.StateChanged, d => this.onStateChanged(d));
 
         await this.ossmBle.begin();
         await this.ossmBle.waitForReady();
@@ -199,13 +198,10 @@ class Dev {
         await this.ossmBle.setSpeedKnobConfig(false);
         await this.ossmBle.getPatternList();
 
-        // await this.ossmBle.runStrokeEnginePattern(new PatternHelper(KnownPattern.SimpleStroke, 20, 80, 70));
-        // await this.ossmBle.runStrokeEnginePattern(new PatternHelper(KnownPattern.TeasingPounding, 20, 80, 20, 100, false));
-        // await this.ossmBle.runStrokeEnginePattern(new PatternHelper(KnownPattern.RoboStroke, 30, 70, 15, 0));
-        // await this.ossmBle.runStrokeEnginePattern(new PatternHelper(KnownPattern.Insist, 0, 30, 100, 100));
-
         //#region Setup DOM
-        const initialState = await this.ossmBle.getState();
+        const initialState = await this.ossmBle.getState(); //Fetch initial state first before setting up the event listener, to avoid double UI updates.
+        console.log("Initial state:", initialState);
+        this.ossmBle.addEventListener(OssmEventType.StateChanged, d => this.onStateChanged(d));
 
         const stopButton = new ButtonInput(
             "Stop",
@@ -322,7 +318,7 @@ class Dev {
             event: OssmEventType.StateChanged,
             [OssmEventType.StateChanged]: {
                 newState: initialState,
-                oldState: null
+                // oldState: null
             }
         });
         //#endregion
