@@ -1,0 +1,27 @@
+{
+  "name": "@readiefur/ossm-ble-web",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "./dist/ossm-ble-web.js",
+  "module": "./dist/ossm-ble-web.js",
+  "types": "./dist/ossm-ble-web.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/ossm-ble-web.d.ts",
+      "import": "./dist/ossm-ble-web.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,25 @@
+# Build & TypeScript outputs
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Virtual entry point (generated in node_modules by tsup.config.ts)
+src/.virtual_entry.ts
+
+# Testing
+.vitest/
+test-results/
+playwright-report/
+
+# IDE & Editor files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+# Logs
+
+# System Files
+.DS_Store
+Thumbs.db
