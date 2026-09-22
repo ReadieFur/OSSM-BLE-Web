@@ -187,6 +187,15 @@ export class OssmClient extends BleConnectionHandler {
     }
 
     /**
+     * Gets whether speed knob acts as upper limit for BLE speed commands
+     * @returns `true` if speed knob is configured as upper limit, `false` otherwise
+     */
+    async getSpeedKnobConfig(): Promise<boolean> {
+        if (!this.#ossmPrimaryService) throw this.#invalidStateError();
+        return this.readCharacteristic(this.#ossmPrimaryService.characteristics.speedKnobConfiguration, 'bool');
+    }
+
+    /**
      * Set WiFi credentials
      * @param ssid The SSID of the WiFi network
      * @param password The password of the WiFi network
