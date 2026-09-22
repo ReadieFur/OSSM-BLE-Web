@@ -71,3 +71,9 @@ export interface OssmStateCharacteristicResponse {
     /** Unknown */
     v: number;
 }
+
+export interface OssmPattern {
+    idx: number;
+    name: string;
+    description: string;
+}
