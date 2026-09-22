@@ -18,6 +18,9 @@ const OSSM_PRIMARY_SERVICE = {
 // #endregion
 
 export class OssmClient extends BleConnectionHandler {
+    readonly #textEncoder = new TextEncoder();
+    readonly #textDecoder = new TextDecoder();
+
     /**
      * Prompts the user via the browser to pair with an OSSM BLE device
      * @requires that the page is served over HTTPS or from localhost AND is called by a user gesture
@@ -43,5 +46,16 @@ export class OssmClient extends BleConnectionHandler {
     }
 
     private handleCurrentStateChanged(event: Event): void {
+    }
+
+    /**
+     * Emergency stops the OSSM device discarding any queued actions
+     */
+    async stop(): Promise<void> {
+        this.clearBleTaskQueue();
+        this.prependBleTask(async () => {
+            await this.#ossmPrimaryService?.characteristics.command.writeValue(this.#textEncoder.encode("set:speed:0"));
+            // Possibly check return value?
+        });
     }
 }

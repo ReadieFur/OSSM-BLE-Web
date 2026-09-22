@@ -84,7 +84,7 @@ export abstract class BleConnectionHandler implements Disposable {
 
     //#region Connection lifecycle
     /**
-     * Begins automatic connection and lifecycle management.
+     * Begins automatic connection and lifecycle management
      */
     public async begin(): Promise<void> {
         try { await this.connect(); }
@@ -92,7 +92,7 @@ export abstract class BleConnectionHandler implements Disposable {
     }
 
     /**
-     * Gracefully disconnects from the device and halts auto-reconnection.
+     * Gracefully disconnects from the device and halts auto-reconnection
      */
     public async disconnect(): Promise<void> {
         this.autoReconnect = false;
@@ -167,29 +167,29 @@ export abstract class BleConnectionHandler implements Disposable {
 
     //#region Template methods for derived classes
     /**
-     * Override to perform GATT service/characteristic discovery and notification subscriptions.
+     * Override to perform GATT service/characteristic discovery and notification subscriptions
      */
     protected abstract setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void>;
 
     /**
-     * Executed prior to explicit disconnection.
+     * Executed prior to explicit disconnection
      */
     protected async onBeforeDisconnect(): Promise<void> {}
 
     /**
-     * Executed when disconnection occurs.
+     * Executed when disconnection occurs
      */
     protected async onDisconnected(wasConnected: boolean): Promise<void> {}
 
     /**
-     * Executed after a successful reconnection.
+     * Executed after a successful reconnection
      */
     protected async onReconnected(disconnectedAtMs: number): Promise<void> {}
     //#endregion
 
     //#region Task queue & helpers
     /**
-     * Discovers and initializes a single GATT service and all its characteristics.
+     * Discovers and initializes a single GATT service and all its characteristics
      */
     static async discoverGattService<TDef extends GattServiceDefinition>(
         gatt: BluetoothRemoteGATTServer,
@@ -207,19 +207,9 @@ export abstract class BleConnectionHandler implements Disposable {
         };
     }
 
-    /**
-     * Helper method to run Bluetooth calls sequentially.
-     */
-    protected enqueueBleTask<T>(task: () => Promise<T>): Promise<T> {
-        return this.taskQueue.enqueue(task);
-    }
-
-    /**
-     * Clears the Bluetooth task queue.
-     */
-    protected clearBleTaskQueue(): void {
-        this.taskQueue.clearQueue();
-    }
+    readonly enqueueBleTask = this.taskQueue.enqueue;
+    readonly prependBleTask = this.taskQueue.prepend;
+    readonly clearBleTaskQueue = this.taskQueue.clearQueue;
 
     protected debugLog(...args: any[]): void {
         if (this.debug)

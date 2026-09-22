@@ -16,6 +16,19 @@ export class AsyncFunctionQueue {
     }
 
     /**
+     * Prepends an asynchronous function to the front of the queue for sequential execution.
+     */
+    async prepend<T>(fn: () => Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            this.#queue.unshift(async () => {
+                try { resolve(await fn()); }
+                catch (err) { reject(err); }
+            });
+            this.processQueue();
+        });
+    }
+
+    /**
      * Clears all pending tasks in the queue.
      */
     clearQueue(): void {
