@@ -14,17 +14,20 @@ export interface ServerEnvironment {
 let env: ServerEnvironment;
 
 // Chrome test browser environment setup
-async function startEnvironment(port = 3000): Promise<ServerEnvironment> {
+export async function startEnvironment(port = 3000): Promise<ServerEnvironment> {
   const httpServer = http.createServer(async (req, res) => {
         if (req.url === "/" || req.url === "/index.html") {
             res.writeHead(200, { "Content-Type": "text/html" });
-            return res.end(`<!doctypehtml><html lang=en><meta charset=UTF-8><title>Web Bluetooth Test</title><style>body{background-color:#000;color:#fff;}</style><script src=/dist/ossm-ble-web.global.js></script><div id=app>Web Bluetooth Test Harness</div>`);
+            const indexHtmlPath = path.join(process.cwd(), "test", "page.html");
+            const indexHtmlContent = await readFile(indexHtmlPath, "utf-8");
+            res.end(indexHtmlContent);
+            return;
         }
 
         // Serve project files (e.g. /dist/index.js)
         const filePath = path.join(process.cwd(), req.url!);
         try {
-        const fileContent = await readFile(filePath);
+            const fileContent = await readFile(filePath);
             const isJs = req.url?.endsWith(".js");
             res.writeHead(200, {
                 "Content-Type": isJs ? "application/javascript" : "text/plain",
