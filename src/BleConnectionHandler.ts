@@ -32,7 +32,7 @@ export abstract class BleConnectionHandler implements Disposable {
     private _connectionState: BleConnectionState = BleConnectionState.Disconnected;
     private _eventListeners: Map<string, BleEventCallback[]> = new Map();
 
-    public debug: boolean = false;
+    public debug: boolean = window?.location?.hostname === "localhost" || new URLSearchParams(window?.location?.search).has("dev");
     public autoReconnect: boolean = true;
     public reconnectTimeoutMs: number = 5000;
     public reconnectRetryDelayMs: number = 250;
@@ -207,9 +207,9 @@ export abstract class BleConnectionHandler implements Disposable {
         };
     }
 
-    readonly enqueueBleTask = this.taskQueue.enqueue;
-    readonly prependBleTask = this.taskQueue.prepend;
-    readonly clearBleTaskQueue = this.taskQueue.clearQueue;
+    async enqueueBleTask<T>(fn: () => Promise<T>): Promise<T> { return await this.taskQueue.enqueue(fn); }
+    async prependBleTask<T>(fn: () => Promise<T>): Promise<T> { return await this.taskQueue.prepend(fn); }
+    async clearBleTaskQueue(): Promise<void> { return await this.taskQueue.clearQueue(); }
 
     protected debugLog(...args: any[]): void {
         if (this.debug)

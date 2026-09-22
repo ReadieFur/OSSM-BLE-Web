@@ -1,4 +1,5 @@
 import { BleConnectionHandler, DiscoveredGattService, GattServiceDefinition } from "./BleConnectionHandler";
+import { OssmStateCharacteristicResponse } from "./Types";
 
 // #region GATT schema definition
 const OSSM_DEVICE_NAME = "OSSM";
@@ -37,6 +38,11 @@ export class OssmClient extends BleConnectionHandler {
 
     #ossmPrimaryService: DiscoveredGattService<typeof OSSM_PRIMARY_SERVICE> | null = null;
 
+    constructor(device: BluetoothDevice) {
+        super(device);
+        this.debugLog(this);
+    }
+
     /**
      * Sets up the GATT services and characteristics for the OSSM device
      */
@@ -46,6 +52,17 @@ export class OssmClient extends BleConnectionHandler {
     }
 
     private handleCurrentStateChanged(event: Event): void {
+        let state: OssmStateCharacteristicResponse;
+        try { state = JSON.parse(this.#textDecoder.decode((event.target as BluetoothRemoteGATTCharacteristic).value)); }
+        catch (error) {
+            console.error("Error handling current state change:", error);
+            return;
+        }
+
+        if (this.debug) {
+            console.log('Current state changed:', state);
+            // console.table(state);
+        }
     }
 
     /**
@@ -53,9 +70,18 @@ export class OssmClient extends BleConnectionHandler {
      */
     async stop(): Promise<void> {
         this.clearBleTaskQueue();
-        this.prependBleTask(async () => {
+        await this.prependBleTask(async () => {
             await this.#ossmPrimaryService?.characteristics.command.writeValue(this.#textEncoder.encode("set:speed:0"));
             // Possibly check return value?
         });
+    }
+
+    /**
+     * Fetches the current state of the OSSM device
+     */
+    async fetchState(): Promise<OssmStateCharacteristicResponse> {
+        return await this.enqueueBleTask(async () =>
+            JSON.parse(this.#textDecoder.decode(await this.#ossmPrimaryService?.characteristics.currentState.readValue())) as OssmStateCharacteristicResponse
+        );
     }
 }
