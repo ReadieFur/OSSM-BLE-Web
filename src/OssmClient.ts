@@ -73,7 +73,7 @@ export class OssmClient extends BleConnectionHandler {
      */
     async stop(): Promise<void> {
         if (!this.#ossmPrimaryService) throw this.#invalidStateError();
-        this.clearBleTaskQueue();
+        this.clearBleTaskQueue("Emergency stop invoked.");
         // This one we do manually, because we want to ensure it is sent immediately and not queued behind other tasks
         await this.prependBleTask(async () => {
             await this.#ossmPrimaryService?.characteristics.command.writeValue(this.#textEncoder.encode("set:speed:0"));

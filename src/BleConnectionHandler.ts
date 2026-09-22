@@ -97,7 +97,7 @@ export abstract class BleConnectionHandler implements Disposable {
     public async disconnect(): Promise<void> {
         this.autoReconnect = false;
         this._connectionState = BleConnectionState.Disconnecting;
-        this.taskQueue.clearQueue();
+        this.taskQueue.clearQueue("Disconnecting from device.");
 
         await this.onBeforeDisconnect();
 
@@ -113,7 +113,7 @@ export abstract class BleConnectionHandler implements Disposable {
             return;
 
         this._connectionState = BleConnectionState.Connecting;
-        this.taskQueue.clearQueue();
+        this.taskQueue.clearQueue("Initiating new connection, clearing stale tasks.");
 
         await this.taskQueue.enqueue(async () => {
             this.debugLog("Connecting GATT server...");
@@ -209,7 +209,7 @@ export abstract class BleConnectionHandler implements Disposable {
 
     async enqueueBleTask<T>(fn: () => Promise<T>): Promise<T> { return await this.taskQueue.enqueue(fn); }
     async prependBleTask<T>(fn: () => Promise<T>): Promise<T> { return await this.taskQueue.prepend(fn); }
-    async clearBleTaskQueue(): Promise<void> { return await this.taskQueue.clearQueue(); }
+    clearBleTaskQueue(reason?: Error | string): void { this.taskQueue.clearQueue(reason); }
 
     protected debugLog(...args: any[]): void {
         if (this.debug)
