@@ -61,14 +61,13 @@ export class SimpleLease extends RadLease implements Disposable {
     async acquire(): Promise<this> {
         if (this._disposed) throw new DOMException("Lease has been released", "InvalidStateError");
 
-        const res = await this.api.send<{ lease: number; ttlMs: number }>({
+        const res = await this.api.sendWithResult<{ lease: number; ttlMs: number }>({
             op: "control.acquire",
             args: { ttl: this.ttlSeconds },
         });
-        if (!res.result?.lease) throw new DOMException("Lease acquire returned no token", "OperationError");
 
-        this._token = res.result.lease;
-        this._expiresAt = Date.now() + res.result.ttlMs;
+        this._token = res.lease;
+        this._expiresAt = Date.now() + res.ttlMs;
         return this;
     }
 

@@ -1,5 +1,6 @@
 import { BleConnectionHandler, DiscoveredGattService, GattServiceDefinition } from "./BleConnectionHandler";
 import { AutoLease, RadLease, SimpleLease } from "./RadLease";
+import * as RadSchema from "./RadProtocolSchema";
 
 // I bless Copilot for this, there are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
 type RequiredRadCharacteristics =
@@ -25,72 +26,6 @@ export interface RadServiceDefinition extends GattServiceDefinition {
     };
 }
 
-export type RadStage = "accepted" | "completed" | "failed";
-
-export interface RadResponse<T = unknown> {
-    v: number;
-    id: number;
-    stage: RadStage;
-    ok: boolean;
-    code?: string;
-    message?: string;
-    result?: T;
-    stateBefore?: string;
-    stateAfter?: string;
-}
-
-export interface RadRequest {
-    v: 1;
-    id: number;
-    op: string;
-    path?: string;
-    args?: Record<string, unknown>;
-    lease?: number;
-    ifState?: string;
-}
-
-export interface ProtocolInfo {
-    capabilities: string[];
-    capabilityHash: string;
-    channels: number;
-    deviceType: string;
-    directFilesystemOta: boolean;
-    directOta: boolean;
-    essentialState: string;
-    libraryVersion: string;
-    maxMessageBytes: number;
-    maxMtu: number;
-    otaResumeTlsMs: number;
-    protocol: string;
-    security: string;
-    serviceUuid: string;
-    stateHeartbeatMs: number;
-    streamHeaderBytes: number;
-    version: number;
-}
-
-export interface CatalogEntry {
-    available: boolean;
-    category: string;
-    constraints: unknown;
-    id: string;
-    leaseRequired: boolean;
-    path: string;
-    readable: boolean;
-    safetyCritical: boolean;
-    streamable: boolean;
-    type: object;
-    writable: boolean;
-}
-
-export interface CatalogPage {
-    page: number;
-    pageSize: number;
-    pages: number;
-    resources: CatalogEntry[];
-    total: number;
-}
-
 const defaultRadRequestTimeoutMs = 6000;
 
 /**
@@ -108,12 +43,14 @@ export class RadBleApi extends BleConnectionHandler {
     #radServiceDefinition: RadServiceDefinition;
     #nextId = 1;
     #pending = new Map<number, {
-        resolve: (v: RadResponse) => void;
+        resolve: (v: RadSchema.RadResponse) => void;
         reject: (e: Error) => void;
         timer: number;
     }>();
 
     protected ossmRadService: DiscoveredGattService<RadServiceDefinition> | null = null;
+
+    public lease: RadLease | null = null;
     
     // #region BLE lifecycle
     constructor(radServiceDefinition: RadServiceDefinition, device: BluetoothDevice) {
@@ -142,7 +79,7 @@ export class RadBleApi extends BleConnectionHandler {
         await this.enqueueBleTask(() => this.ossmRadService!.characteristics.event.startNotifications());
 
         // Validate protocol
-        const info = this.#parseValueAsJson<ProtocolInfo>(
+        const info = this.#parseValueAsJson<RadSchema.ProtocolInfo>(
             await this.enqueueBleTask(() => this.ossmRadService!.characteristics.protocolInfo.readValue()));
         if (!info || info.protocol !== "rad-ble")
             throw new DOMException(`Unexpected protocol info: ${JSON.stringify(info)}`, "NotSupportedError");
@@ -177,12 +114,12 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns A promise that resolves to {@link RadResponse} containing the response data
      */
     async send<T = unknown>(
-        req: Omit<RadRequest, "v" | "id" | "lease">,
+        req: Omit<RadSchema.RadRequest, "v" | "id" | "lease">,
         lease?: number | RadLease,
         timeoutMs: number = defaultRadRequestTimeoutMs
-    ): Promise<RadResponse<T>> {
+    ): Promise<RadSchema.RadResponse<T>> {
         const id = this.#nextId++;
-        const request: RadRequest = { v: 1, id, ...req };
+        const request: RadSchema.RadRequest = { v: 1, id, ...req };
 
         if (lease instanceof RadLease) {
             if (lease.isExpired)
@@ -194,7 +131,7 @@ export class RadBleApi extends BleConnectionHandler {
 
         const payload = this.#enc.encode(JSON.stringify(request));
 
-        const result = await new Promise<RadResponse<T>>((resolve, reject) => {
+        const result = await new Promise<RadSchema.RadResponse<T>>((resolve, reject) => {
             const timer = window.setTimeout(() => {
                 this.#pending.delete(id);
                 reject(new DOMException(`RAD request timeout (id=${id}, op=${req.op})`, "TimeoutError"));
@@ -220,12 +157,31 @@ export class RadBleApi extends BleConnectionHandler {
     }
 
     /**
+     * Sends a request and returns the result, throwing an error if the result is missing.
+     * @param req The request to send
+     * @param lease The lease to use, if any
+     * @param timeoutMs The timeout in milliseconds, if any
+     * @returns A promise resolving to the result of the request
+     */
+    async sendWithResult<T = unknown>(
+        req: Omit<RadSchema.RadRequest, "v" | "id" | "lease">,
+        lease?: number | RadLease,
+        timeoutMs?: number
+    ): Promise<T> {
+        return this.send<T>(req, lease, timeoutMs).then(res => {
+            if (!res.result)
+                throw new DOMException("RAD request returned no result", "DataError");
+            return res.result;
+        });
+    }
+
+    /**
      * Handles incoming RAD responses from the device and either rejects or resolves pending requests
      */
     protected onResponse(event: Event): void {
         const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
         if (!value) return;
-        const msg = this.#parseValueAsJson<RadResponse>(value);
+        const msg = this.#parseValueAsJson<RadSchema.RadResponse>(value);
         this.debugLog("RAD response received:", msg);
         if (!msg || !this.#pending.has(msg.id)) return;
 
@@ -287,44 +243,76 @@ export class RadBleApi extends BleConnectionHandler {
 
     // #region RAD API methods
     /**
-     * Acquires a lease from the device, which is required for certain operations that modify state.
-     * The lease token is valid for a limited time and must be renewed or released when no longer needed.
-     * @param autoRenew Whether the lease should automatically renew at 60% TTL and recover from disconnects. Defaults to false.
+     * Acquires a lease from the device, which is required for certain operations that modify state
+     * The lease token is valid for a limited time and must be renewed or released when no longer needed
+     * @param autoRenew Whether the lease should automatically renew at 60% TTL and recover from disconnects. Defaults to false
      * @param ttlSeconds The time-to-live for the lease in seconds. Defaults to 10 seconds
+     * @param store Whether to store the acquired lease in the `lease` property of this instance. Defaults to true
      * @returns A promise that resolves to a {@link RadLease} object representing the acquired lease
      * @throws OperationError if the lease acquisition fails
      */
-    async acquireLease(autoRenew = false, ttlSeconds = 10): Promise<SimpleLease | AutoLease> {
+    async acquireLease(autoRenew = false, ttlSeconds = 10, store = true): Promise<SimpleLease | AutoLease> {
+        let lease: SimpleLease | AutoLease;
+
         if (autoRenew) {
-            const lease = new AutoLease(this, ttlSeconds);
-            await lease.start();
-            return lease;
+            const autoLease = new AutoLease(this, ttlSeconds);
+            await autoLease.start();
+            lease = autoLease;
         } else {
-            const lease = new SimpleLease(this, ttlSeconds);
-            await lease.acquire();
-            return lease;
+            const simpleLease = new SimpleLease(this, ttlSeconds);
+            await simpleLease.acquire();
+            lease = simpleLease;
         }
+
+        if (store)
+            this.lease = lease;
+
+        return lease;
     }
 
     /**
      * Streams catalog entries from the device page by page, yielding entries individually
      * @throws DataError if the catalog response is malformed or missing data
      */
-    async *fetchCatalog(): AsyncGenerator<CatalogEntry, void, unknown> {
+    async *fetchCatalog(): AsyncGenerator<RadSchema.CatalogEntry, void, unknown> {
         let page = 0;
         while (true) {
-            const res = await this.send<CatalogPage>({ op: "catalog.read", args: { page } });
-            if (!res.result)
-                throw new DOMException("Catalog read returned no result", "DataError");
+            const res = await this.sendWithResult<RadSchema.CatalogPage>({ op: "catalog.read", args: { page } });
 
             // Yield each resource in the page
-            yield* res.result.resources;
+            yield* res.resources;
 
-            if (page >= res.result.pages - 1)
+            if (page >= res.pages - 1)
                 break;
 
             page++;
         }
+    }
+
+    async getDeviceCapabilities(): Promise<RadSchema.DeviceCapabilities> {
+        return this.sendWithResult<RadSchema.DeviceCapabilities>({ op: "device.capabilities" });
+    }
+
+    async getOtaCapabilities(): Promise<RadSchema.OtaCapabilities> {
+        return this.sendWithResult<RadSchema.OtaCapabilities>({ op: "ota.capabilities" });
+    }
+
+    /**
+     * Reads a snapshot of the generic state of the device
+     */
+    async readState<T extends string = string>(): Promise<RadSchema.State<T>> {
+        return this.sendWithResult<RadSchema.State<T>>({ op: "state.read" });
+    }
+
+    /**
+     * Restarts the device
+     * @requires a valid lease
+     * @note This also discards this RAD API instance
+     */
+    async restartSystem(): Promise<void> {
+        this.requireLease();
+        await this.send({ op: "system.restart" }, this.lease!);
+        await this.disconnect();
     }
     // #endregion
 
@@ -332,6 +320,17 @@ export class RadBleApi extends BleConnectionHandler {
     #parseValueAsJson<T = unknown>(value: DataView): T {
         const str = this.#dec.decode(value);
         return JSON.parse(str) as T;
+    }
+
+    /**
+     * Ensures that a lease is currently active and valid.
+     * @throws DOMException if no lease is available or if the existing lease has expired.
+     */
+    protected requireLease(): void {
+        if (!this.lease)
+            throw new DOMException("No lease acquired", "InvalidStateError");
+        if (this.lease.isExpired)
+            throw new DOMException("Lease has expired", "InvalidStateError");
     }
     // #endregion
 }
