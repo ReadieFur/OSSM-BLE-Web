@@ -537,7 +537,7 @@ export class RadBleApi extends BleConnectionHandler {
     async readSetting<T = unknown>(path: string): Promise<T> {
         this.requireLease();
         // Handled by abstract command handler, compile time type is unknown
-        return this.sendWithResult<T>({ op: "setting.read", args: { path } }, this.lease!);
+        return this.sendWithResult<T>({ op: "setting.read", path }, this.lease!);
     }
 
     /**
@@ -552,8 +552,8 @@ export class RadBleApi extends BleConnectionHandler {
         // Handled by abstract command handler, compile time type is unknown
         return this.sendWithResult<T>({
             op: "setting.write",
+            path,
             args: {
-                path,
                 value
             }
         }, this.lease!);
@@ -567,7 +567,7 @@ export class RadBleApi extends BleConnectionHandler {
     async resetSetting(path: string): Promise<void> {
         this.requireLease();
         // Handled by abstract command handler, compile time type is unknown
-        await this.send({ op: "setting.reset", args: { path } }, this.lease!);
+        await this.send({ op: "setting.reset", path }, this.lease!);
     }
 
     async getDeviceName(): Promise<string> {
