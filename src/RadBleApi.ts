@@ -1,7 +1,7 @@
 import { BleConnectionHandler, DiscoveredGattService, GattServiceDefinition } from "./BleConnectionHandler";
 import { AutoLease, RadLease, SimpleLease } from "./RadLease";
 
-// I bless Copilot for this, there are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit
+// I bless Copilot for this, there are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
 type RequiredRadCharacteristics =
     "protocolInfo"      // Protocol/version/capability metadata for RAD
     | "catalog"         // Resource catalog (what paths/resources the device exposes)
@@ -97,8 +97,14 @@ const defaultRadRequestTimeoutMs = 6000;
  * Generic RAD BLE API handler. This class handles the RAD protocol over BLE, and it's common calls
  */
 export class RadBleApi extends BleConnectionHandler {
+    readonly #onResponseSignature = this.onResponse.bind(this);
+    readonly #onStateSignature = this.onState.bind(this);
+    readonly #onEssentialStateSignature = this.onEssentialState.bind(this);
+    readonly #onEventSignature = this.onEvent.bind(this);
+
     readonly #enc = new TextEncoder();
     readonly #dec = new TextDecoder();
+
     #radServiceDefinition: RadServiceDefinition;
     #nextId = 1;
     #pending = new Map<number, {
@@ -106,6 +112,7 @@ export class RadBleApi extends BleConnectionHandler {
         reject: (e: Error) => void;
         timer: number;
     }>();
+
     protected ossmRadService: DiscoveredGattService<RadServiceDefinition> | null = null;
     
     // #region BLE lifecycle
@@ -122,16 +129,16 @@ export class RadBleApi extends BleConnectionHandler {
         this.ossmRadService = await BleConnectionHandler.discoverGattService(gatt, this.#radServiceDefinition);
 
         // Set up notifications
-        this.ossmRadService.characteristics.response.addEventListener("characteristicvaluechanged", this.onResponse.bind(this));
+        this.ossmRadService.characteristics.response.addEventListener("characteristicvaluechanged", this.#onResponseSignature);
         await this.enqueueBleTask(() => this.ossmRadService!.characteristics.response.startNotifications());
 
-        this.ossmRadService.characteristics.state.addEventListener("characteristicvaluechanged", this.onState.bind(this));
+        this.ossmRadService.characteristics.state.addEventListener("characteristicvaluechanged", this.#onStateSignature);
         await this.enqueueBleTask(() => this.ossmRadService!.characteristics.state.startNotifications());
 
-        this.ossmRadService.characteristics.essentialState.addEventListener("characteristicvaluechanged", this.onEssentialState.bind(this));
+        this.ossmRadService.characteristics.essentialState.addEventListener("characteristicvaluechanged", this.#onEssentialStateSignature);
         await this.enqueueBleTask(() => this.ossmRadService!.characteristics.essentialState.startNotifications());
 
-        this.ossmRadService.characteristics.event.addEventListener("characteristicvaluechanged", this.onEvent.bind(this));
+        this.ossmRadService.characteristics.event.addEventListener("characteristicvaluechanged", this.#onEventSignature);
         await this.enqueueBleTask(() => this.ossmRadService!.characteristics.event.startNotifications());
 
         // Validate protocol
@@ -146,10 +153,10 @@ export class RadBleApi extends BleConnectionHandler {
      */
     protected override async onBeforeDisconnect(): Promise<void> {
         if (this.ossmRadService) {
-            this.ossmRadService.characteristics.response.removeEventListener("characteristicvaluechanged", this.onResponse.bind(this));
-            this.ossmRadService.characteristics.state.removeEventListener("characteristicvaluechanged", this.onState.bind(this));
-            this.ossmRadService.characteristics.essentialState.removeEventListener("characteristicvaluechanged", this.onEssentialState.bind(this));
-            this.ossmRadService.characteristics.event.removeEventListener("characteristicvaluechanged", this.onEvent.bind(this));
+            this.ossmRadService.characteristics.response.removeEventListener("characteristicvaluechanged", this.#onResponseSignature);
+            this.ossmRadService.characteristics.state.removeEventListener("characteristicvaluechanged", this.#onStateSignature);
+            this.ossmRadService.characteristics.essentialState.removeEventListener("characteristicvaluechanged", this.#onEssentialStateSignature);
+            this.ossmRadService.characteristics.event.removeEventListener("characteristicvaluechanged", this.#onEventSignature);
         }
     }
 

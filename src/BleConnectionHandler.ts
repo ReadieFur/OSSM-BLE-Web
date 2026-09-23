@@ -26,6 +26,8 @@ export type DiscoveredGattService<TDef extends GattServiceDefinition> = {
  * Generic web-bluetooth connection handler
  */
 export abstract class BleConnectionHandler implements Disposable {
+    readonly #handleGattDisconnectedSignature = this.handleGattDisconnected.bind(this);
+
     protected readonly device: BluetoothDevice;
     protected readonly taskQueue = new AsyncFunctionQueue();
 
@@ -50,7 +52,7 @@ export abstract class BleConnectionHandler implements Disposable {
         if (!this.device.gatt)
             throw new DOMException("Device is not connectable via GATT.", "NotSupportedError");
 
-        this.device.addEventListener("gattserverdisconnected", this.handleGattDisconnected.bind(this));
+        this.device.addEventListener("gattserverdisconnected", this.#handleGattDisconnectedSignature);
     }
 
     [Symbol.dispose](): void {
