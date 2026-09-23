@@ -26,18 +26,22 @@ const OSSM_RAD_SERVICE = {
     }
 } as const satisfies RadServiceDefinition;
 
-export class OssmClient extends RadBleApi {
+export class OssmBleClient extends RadBleApi {
     /**
      * Prompts the user via the browser to pair with an OSSM BLE device
      * @requires That the page is served over HTTPS or from localhost AND is called by a user gesture
      * @returns A new {@link OssmClient} on successful pairing
      * @throws DOMException if pairing is cancelled or fails
      */
-    static async pairDevice(): Promise<OssmClient> {
+    static async pairDevice(): Promise<OssmBleClient> {
         const bleDevice = await navigator.bluetooth.requestDevice({
             filters: [{ name: "OSSM" }],
             optionalServices: [OSSM_RAD_SERVICE.uuid]
         });
-        return new OssmClient(OSSM_RAD_SERVICE, bleDevice);
+        return new OssmBleClient(bleDevice);
+    }
+
+    constructor(device: BluetoothDevice) {
+        super(OSSM_RAD_SERVICE, device);
     }
 }
