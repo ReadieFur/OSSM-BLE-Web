@@ -115,13 +115,9 @@ export abstract class BleConnectionHandler implements Disposable {
         this._connectionState = BleConnectionState.Connecting;
         this.taskQueue.clearQueue("Initiating new connection, clearing stale tasks.");
 
-        await this.taskQueue.enqueue(async () => {
-            this.debugLog("Connecting GATT server...");
-            const gattServer = await this.device.gatt!.connect();
-
-            // Delegate service and characteristic discovery to derived implementation
-            await this.setupServicesAndCharacteristics(gattServer);
-        });
+        this.debugLog("Connecting GATT server...");
+        let gattServer = await this.taskQueue.enqueue(() => this.device.gatt!.connect());
+        await this.setupServicesAndCharacteristics(gattServer);
 
         this._connectionState = BleConnectionState.Connected;
         this.debugLog("Connected");
@@ -147,21 +143,21 @@ export abstract class BleConnectionHandler implements Disposable {
         this.debugLog("Reconnecting...");
 
         let attempt = 0;
-        const disconnectTime = Date.now();
 
         while (this.autoReconnect && !this.isConnected) {
             try {
                 attempt++;
                 this.debugLog(`Reconnection attempt ${attempt}...`);
                 await this.connect();
-
-                await this.onReconnected(disconnectTime);
                 break;
             } catch (error) {
                 this.debugLog(`Reconnection attempt ${attempt} failed:`, error);
                 await new Promise((resolve) => setTimeout(resolve, this.reconnectRetryDelayMs));
             }
         }
+
+        if (this.isConnected)
+            await this.onReconnected();
     }
     //#endregion
 
@@ -172,6 +168,11 @@ export abstract class BleConnectionHandler implements Disposable {
     protected abstract setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void>;
 
     /**
+     * Executed upon reconnection after a disconnection event
+     */
+    protected async onReconnected(): Promise<void> {}
+
+    /**
      * Executed prior to explicit disconnection
      */
     protected async onBeforeDisconnect(): Promise<void> {}
@@ -180,11 +181,6 @@ export abstract class BleConnectionHandler implements Disposable {
      * Executed when disconnection occurs
      */
     protected async onDisconnected(wasConnected: boolean): Promise<void> {}
-
-    /**
-     * Executed after a successful reconnection
-     */
-    protected async onReconnected(disconnectedAtMs: number): Promise<void> {}
     //#endregion
 
     //#region Task queue & helpers
