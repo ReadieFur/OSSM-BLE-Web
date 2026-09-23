@@ -3,9 +3,14 @@ import { AutoLease, RadLease, SimpleLease } from "./RadLease";
 import * as RadSchema from "./RadProtocolSchema";
 import crc32 from "crc-32";
 
-// I bless Copilot for helping my find the core of how this RAD API works, there are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
-// https://github.com/researchanddesire/rad-ble/blob/main/src/RadBleProtocol.generated.h
-// https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json
+/* I bless Copilot for helping my find the core of how this RAD API works (namley around the request/response handling)
+ * There are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
+ */
+/* https://github.com/researchanddesire/rad-ble/blob/main/src/RadBleProtocol.generated.h
+ * https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json
+ * There are other characteristics defined in the schema but we either don't need them
+ * or a lot of them point to the same method handler inside the firmware (so we can just reuse request/response)
+ */
 const RAD_CHARACTERISTIC_SUFFIXES = {
     protocolInfo: "0002",   // Protocol/version/capability metadata for RAD
     request: "1000",        // Send RAD JSON requests (setting.write, target.set, sensor.read, etc.)

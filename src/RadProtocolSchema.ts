@@ -16,7 +16,7 @@ export interface RadResponse<T = unknown> {
     stateBefore?: string;
     stateAfter?: string;
 }
-
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L847
 export interface RadRequest {
     v: 1;
     id: number;
