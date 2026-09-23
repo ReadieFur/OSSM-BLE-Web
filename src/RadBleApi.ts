@@ -270,13 +270,24 @@ export class RadBleApi extends BleConnectionHandler {
         return lease;
     }
 
+    async getDeviceCapabilities(): Promise<RadSchema.ProtocolInfoCompact> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L996
+        return this.sendWithResult<RadSchema.ProtocolInfoCompact>({ op: "device.capabilities" });
+    }
+
+    async getOtaCapabilities(): Promise<RadSchema.OtaCapabilities> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1002
+        return this.sendWithResult<RadSchema.OtaCapabilities>({ op: "ota.capabilities" });
+    }
+
     /**
      * Streams catalog entries from the device page by page, yielding entries individually
      * @throws DataError if the catalog response is malformed or missing data
      */
-    async *fetchCatalog(): AsyncGenerator<RadSchema.CatalogEntry, void, unknown> {
+    async *getCatalog(): AsyncGenerator<RadSchema.CatalogEntry, void, unknown> {
         let page = 0;
         while (true) {
+            // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1031
             const res = await this.sendWithResult<RadSchema.CatalogPage>({ op: "catalog.read", args: { page } });
 
             // Yield each resource in the page
@@ -289,19 +300,158 @@ export class RadBleApi extends BleConnectionHandler {
         }
     }
 
-    async getDeviceCapabilities(): Promise<RadSchema.DeviceCapabilities> {
-        return this.sendWithResult<RadSchema.DeviceCapabilities>({ op: "device.capabilities" });
+    async readState(): Promise<RadSchema.State> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1041
+        return this.sendWithResult<RadSchema.State>({ op: "state.read" });
     }
 
-    async getOtaCapabilities(): Promise<RadSchema.OtaCapabilities> {
-        return this.sendWithResult<RadSchema.OtaCapabilities>({ op: "ota.capabilities" });
+    async readSensor<T = unknown>(path: string): Promise<T> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1052
+        // Only essential.live is operated upon in the base RAD firmware, but that still calls out to the snapshot handler for an unknown compile time response, so for now I will leave this as T = unknown and let the caller handle the type
+        return this.sendWithResult<T>({ op: "sensor.read", path });
+    }
+
+    async getWiFiStatus(): Promise<unknown> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1061
+        // This also calls out to a Surface:: and has no default handler, so return type is unknown here
+        return this.sendWithResult({ op: "wifi.status" });
+    }
+
+    async readOutput<T = unknown>(path: string): Promise<T> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1069
+        // Calls a dynamic snapshot surface handler, type is unknown
+        return this.sendWithResult<T>({ op: "output.read", path });
+    }
+
+    async readSensorMany<T = unknown>(paths: string[]): Promise<RadSchema.SensorReadManyEntry<T>[]> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1095
+        return this.sendWithResult<RadSchema.SensorReadManyEntry<T>[]>({ op: "sensor.readMany", args: { paths } });
     }
 
     /**
-     * Reads a snapshot of the generic state of the device
+     * Starts a stream of data from the device
+     * @param path Path to stream
+     * @param rateHz Rate in Hz to stream at. If omitted, the device will use its default rate for the stream
+     * @requires A valid lease token
      */
-    async readState<T extends string = string>(): Promise<RadSchema.State<T>> {
-        return this.sendWithResult<RadSchema.State<T>>({ op: "state.read" });
+    async startStream(path: string, rateHz?: number): Promise<RadSchema.StreamResult> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1569
+        return this.sendWithResult<RadSchema.StreamResult>({
+            op: "stream.start",
+            path,
+            args: {
+                rateHz
+            }
+        }, this.lease!);
+    }
+
+    /**
+     * Updates the current stream configuration
+     * @param path Path to stream, if any. If omitted, the current stream path is used
+     * @param rateHz Rate in Hz to stream at. If omitted, the current stream rate is used
+     * @returns A promise resolving to the updated stream result
+     * @requires A valid lease token
+     */
+    async updateStream(path?: string, rateHz?: number): Promise<RadSchema.StreamResult> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1550
+        return this.sendWithResult<RadSchema.StreamResult>({
+            op: "stream.update",
+            path,
+            args: {
+                rateHz
+            }
+        }, this.lease!);
+    }
+
+    /**
+     * @requires A valid lease token
+     */
+    async stopStream(): Promise<void> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1542
+        await this.send({ op: "stream.stop" }, this.lease!);
+    }
+
+    /**
+     * Begins an OTA firmware update session on the device
+     * @param size Size of the binary in bytes
+     * @param sha256 SHA256 hash of the binary
+     * @param component Target partition. Defaults to "application"
+     * @requires A valid lease token
+     */
+    async beginOta(size: number, sha256: string, component?: RadSchema.OtaComponent): Promise<RadSchema.OtaBeginResult> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1190
+        return this.sendWithResult<RadSchema.OtaBeginResult>({ op: "ota.begin", args: { size, sha256, component } }, this.lease!);
+    }
+
+    /**
+     * @requires A valid lease token
+     */
+    async resumeOta(session: number): Promise<RadSchema.OtaResumeResult> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1193
+        return this.sendWithResult<RadSchema.OtaResumeResult>({ op: "ota.resume", args: { session } }, this.lease!);
+    }
+
+    /**
+     * @requires A valid lease token
+     */
+    async finishOta(session: number): Promise<RadSchema.OtaFinishResult> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1212
+        return this.sendWithResult<RadSchema.OtaFinishResult>({ op: "ota.finish", args: { session } }, this.lease!);
+    }
+
+    /**
+     * @requires A valid lease token
+     */
+    async abortOta(session: number): Promise<void> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1215
+        await this.send({ op: "ota.abort", args: { session } }, this.lease!);
+    }
+
+    /**
+     * Scans for available WiFi networks
+     * @requires A valid lease token
+     */
+    async wifiScan(): Promise<RadSchema.WiFiScanResult> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1606
+        const res = await this.sendWithResult<Partial<RadSchema.WiFiScanResult>>({ op: "wifi.scan" }, this.lease!);
+
+        /* This RAD command returns a success response even if a scan is already in progress.
+         * The true success state is at the end of the original request where 'running' is false and the return result is ok
+         */
+        if (res.running === true)
+            throw new DOMException("Another WiFi scan is already in progress", "InvalidStateError");
+
+        return res as RadSchema.WiFiScanResult;
+    }
+
+    /**
+     * @requires A valid lease token
+     */
+    async wifiForget(): Promise<void> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1705
+        await this.send({ op: "wifi.forget" }, this.lease!);
+    }
+
+    /**
+     * Configures the device to connect to a WiFi network.
+     * @param ssid The SSID of the WiFi network to connect to
+     * @param password Optional password for the WiFi network
+     * @returns Void when the credentials have been saved and the device has requested to connect. This does not guarantee that the connection was successful, only that the device has accepted the request to connect. Use {@link getWiFiStatus} to check the connection status.
+     * @requires A valid lease token
+     */
+    async wifiConfigure(ssid: string, password?: string): Promise<void> {
+        this.requireLease();
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1711
+        await this.send({ op: "wifi.configure", args: { ssid, password } }, this.lease!);
     }
 
     /**
@@ -313,6 +463,63 @@ export class RadBleApi extends BleConnectionHandler {
         this.requireLease();
         await this.send({ op: "system.restart" }, this.lease!);
         await this.disconnect();
+    }
+
+    /**
+     * Reads a setting from the device
+     * @param path The path to the setting to read
+     * @returns The value of the setting
+     * @requires A valid lease token
+     */
+    async readSetting<T = unknown>(path: string): Promise<T> {
+        this.requireLease();
+        // Handled by abstract command handler, compile time type is unknown
+        return this.sendWithResult<T>({ op: "setting.read", args: { path } }, this.lease!);
+    }
+
+    /**
+     * Writes a setting to the device
+     * @param path The path to the setting to write
+     * @param value The value to write
+     * @returns The value of the setting
+     * @requires A valid lease token
+     */
+    async writeSetting<T = unknown>(path: string, value: unknown): Promise<T> {
+        this.requireLease();
+        // Handled by abstract command handler, compile time type is unknown
+        return this.sendWithResult<T>({
+            op: "setting.write",
+            args: {
+                path,
+                value
+            }
+        }, this.lease!);
+    }
+
+    /**
+     * Resets a setting on the device
+     * @param path The path to the setting to reset
+     * @requires A valid lease token
+     */
+    async resetSetting(path: string): Promise<void> {
+        this.requireLease();
+        // Handled by abstract command handler, compile time type is unknown
+        await this.send({ op: "setting.reset", args: { path } }, this.lease!);
+    }
+
+    async getDeviceName(): Promise<string> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1238
+        return this.readSetting<string>("device.name");
+    }
+
+    async setDeviceName(name: string): Promise<RadSchema.SetDeviceNameResult> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L714
+        return this.writeSetting<RadSchema.SetDeviceNameResult>("device.name", name);
+    }
+
+    async resetDeviceName(): Promise<void> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1238
+        await this.resetSetting("device.name");
     }
     // #endregion
 

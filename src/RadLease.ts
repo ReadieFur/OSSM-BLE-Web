@@ -1,4 +1,5 @@
 import { RadBleApi } from "./RadBleApi";
+import { ControlAcquireResult } from "./RadProtocolSchema";
 
 export abstract class RadLease {
     abstract get token(): number | null;
@@ -61,7 +62,8 @@ export class SimpleLease extends RadLease implements Disposable {
     async acquire(): Promise<this> {
         if (this._disposed) throw new DOMException("Lease has been released", "InvalidStateError");
 
-        const res = await this.api.sendWithResult<{ lease: number; ttlMs: number }>({
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L924
+        const res = await this.api.sendWithResult<ControlAcquireResult>({
             op: "control.acquire",
             args: { ttl: this.ttlSeconds },
         });
@@ -79,6 +81,7 @@ export class SimpleLease extends RadLease implements Disposable {
         if (this._token === null|| this.isExpired) throw new DOMException("No active lease token to renew", "InvalidStateError");
 
         // Tokens do not change on renewal, only the expiration timestamp is updated
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L959
         await this.api.send({ op: "control.renew", args: { ttl: this.ttlSeconds } }, this._token);
         this._expiresAt = Date.now() + (this.ttlSeconds * 1000);
     }
@@ -93,6 +96,7 @@ export class SimpleLease extends RadLease implements Disposable {
         this._expiresAt = 0;
 
         if (currentToken !== null && this.api.isConnected) {
+            //https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L975
             try { await this.api.send({ op: "control.release" }, currentToken); }
             catch { /* Ignore disconnect or teardown errors */ }
         }

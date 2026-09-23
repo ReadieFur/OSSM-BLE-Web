@@ -29,79 +29,150 @@ export interface RadRequest {
     ifState?: string;
 }
 
-export interface ProtocolInfo extends DeviceCapabilities {
-    essentialState: string;
-    maxMessageBytes: number;
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L950
+export interface ControlAcquireResult {
+    lease: number;
+    ttlMs: number;
+}
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L2003
+export interface ProtocolInfoCompact {
+    protocol: string;
+    version: number;
+    libraryVersion: string;
+    deviceType: string;
+    serviceUuid: string;
+    security: string;
+    directOta: boolean;
+    directFilesystemOta: boolean;
+    channels: number;
+    capabilityHash: string;
+    capabilities: string[];
+}
+
+export interface ProtocolInfo extends ProtocolInfoCompact {
     maxMtu: number;
-    otaResumeTlsMs: number;
+    maxMessageBytes: number;
     stateHeartbeatMs: number;
+    essentialState: string;
+    otaResumeTlsMs: number;
     streamHeaderBytes: number;
 }
 
-export interface CatalogEntry {
-    available: boolean;
-    category: string;
-    constraints: unknown;
-    id: string;
-    leaseRequired: boolean;
-    path: string;
-    readable: boolean;
-    safetyCritical: boolean;
-    streamable: boolean;
-    type: object;
-    writable: boolean;
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1010
+export interface OtaCapabilities {
+    direct: boolean;
+    network: boolean;
+    verified: boolean;
+    framing: string;
+    chunkMax: number;
+    flashSizeBytes: number;
+    otaSlotSizeBytes: number;
+    partitionLayout: string;
+    components: string[];
 }
 
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L2051
 export interface CatalogPage {
     page: number;
     pageSize: number;
+    total: number;
     pages: number;
     resources: CatalogEntry[];
-    total: number;
 }
 
-
-export interface DeviceCapabilities {
-    capabilities: string[];
-    capabilityHash: string;
-    channels: number;
-    deviceType: string;
-    directFilesystemOta: boolean;
-    directOta: boolean;
-    libraryVersion: string;
-    protocol: string;
-    security: string;
-    serviceUuid: string;
-    version: number;
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L2061
+export interface CatalogEntry {
+    id: string;
+    path: string;
+    category: string;
+    type: object;
+    units?: string;
+    readable: boolean;
+    writable: boolean;
+    streamable: boolean;
+    persistent: boolean;
+    leaseRequired: boolean;
+    safetyCritical: boolean;
+    available: boolean;
+    constraints: unknown;
 }
 
-export interface OtaCapabilities {
-    chunkMax: number;
-    components: string[];
-    direct: boolean;
-    flashSizeBytes: number;
-    framing: string;
-    network: boolean;
-    otaSlotSizeBytes: number;
-    partitionLayout: string;
-    verified: boolean;
-}
-
-export interface State<T extends string = string> {
-    /** Active background operation string, if any */
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1966
+export type State<T extends Record<string, unknown> = Record<string, unknown>> = T & {
+    state: string;
+    v: number;
+    sequence: number;
+    uptimeMs: number;
     activeOperation: string;
-    /** Current lease status summary */
     lease: {
         active: boolean;
-        remainingMs?: number; // Only set if active
         owner?: number;
-    },
-    /** State snapshot counter */
-    sequence: number;
-    /** Application state string (e.g. "menu.idle") */
-    state: T;
-    /** System uptime in milliseconds */
-    uptimeMs: number;
-    /** RAD Protocol Version */
-    v: number;
+        expiresInMs?: number;
+    }
+}
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1121
+export interface SensorReadManyEntry<T = unknown> {
+    path: string;
+    ok: boolean;
+    code?: string;
+    result?: T;
+} 
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1593
+export interface StreamResult {
+    streamId: number;
+    path: string;
+    surface: string;
+    rateHz: number;
+    batchSize: 1;
+    encoding: 'json-v1';
+}
+
+export type OtaComponent = "application" | "filesystem";
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1393
+export interface OtaBeginResult {
+    session: number;
+    offset: 0;
+    chunkMax: 480;
+    size: number;
+    component: OtaComponent;
+}
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1204
+export interface OtaResumeResult {
+    session: number;
+    offset: number;
+    size: number;
+    component: OtaComponent;
+}
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1434
+export interface OtaFinishResult {
+    size: number;
+    sha256: string;
+    component: OtaComponent;
+}
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1688
+export interface WiFiScanResult {
+    running: boolean;
+    count: number;
+    partial?: true;
+    networks: {
+        ssid: string;
+        rssi: number;
+        secure: boolean;
+    }[];
+}
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L760
+export interface SetDeviceNameResult {
+    name: string;
+    default: string;
+    custom: boolean;
+    changed: boolean;
+    maxBytes: number;
 }
