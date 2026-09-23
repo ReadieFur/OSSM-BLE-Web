@@ -1,8 +1,6 @@
 /**
  * Typings based on:
  * https://github.com/researchanddesire/rad-ble/blob/main/src/RadBle.cpp
- * https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json
- * https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp#L570-L667
  */
 
 export type RadStage = "accepted" | "completed" | "failed";

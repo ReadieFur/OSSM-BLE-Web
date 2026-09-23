@@ -3,34 +3,28 @@ import { AutoLease, RadLease, SimpleLease } from "./RadLease";
 import * as RadSchema from "./RadProtocolSchema";
 import crc32 from "crc-32";
 
-// I bless Copilot for this, there are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
-type RequiredRadCharacteristics =
-    "protocolInfo"      // Protocol/version/capability metadata for RAD
-    | "catalog"         // Resource catalog (what paths/resources the device exposes)
-    | "deviceName"      // Device name read/write endpoint (RAD-managed name)
-    | "deviceIdentity"  // Device identity/build info
-    | "request"         // Send RAD JSON requests (setting.write, target.set, sensor.read, etc.)
-    | "response"        // Receive command results / staged responses
-    | "state"           // Full state snapshot + state notifications
-    | "essentialState"  // Compact state heartbeat notifications
-    | "event"           // General async events/notifications
-    | "stream"          // High-rate sensor/state streaming channel
-    | "otaControl"      // OTA session control (start/finish/abort, status control plane)
-    | "otaData"         // OTA firmware chunk upload data channel
-    | "otaStatus";      // OTA progress/status notifications
+// I bless Copilot for helping my find the core of how this RAD API works, there are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
+// https://github.com/researchanddesire/rad-ble/blob/main/src/RadBleProtocol.generated.h
+// https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json
+const RAD_CHARACTERISTIC_SUFFIXES = {
+    protocolInfo: "0002",   // Protocol/version/capability metadata for RAD
+    request: "1000",        // Send RAD JSON requests (setting.write, target.set, sensor.read, etc.)
+    response: "1100",       // Receive command results / staged responses
+    state: "2000",          // Full state snapshot + state notifications
+    essentialState: "2010", // Compact state heartbeat notifications
+    event: "2100",          // General async events/notifications
+    stream: "2300",         // High-rate sensor/state streaming channel
+    otaData: "5000"         // OTA firmware chunk upload data channel
+};
 
-export interface RadServiceDefinition extends GattServiceDefinition {
-    characteristics: {
-        [key in RequiredRadCharacteristics]: BluetoothCharacteristicUUID;
-    } & {
-        [key: string]: BluetoothCharacteristicUUID;
-    };
-}
+type RadCharacteristics = {
+    [key in keyof typeof RAD_CHARACTERISTIC_SUFFIXES]: BluetoothRemoteGATTCharacteristic;
+};
 
 const defaultRadRequestTimeoutMs = 6000;
 
 /**
- * Generic RAD BLE API handler. This class handles the RAD protocol over BLE, and it's common calls
+ * Generic RAD BLE API handler. Handles the RAD protocol over BLE, and it's common calls
  */
 export class RadBleApi extends BleConnectionHandler {
     readonly #onResponseSignature = this.onResponse.bind(this);
@@ -41,7 +35,6 @@ export class RadBleApi extends BleConnectionHandler {
     readonly #enc = new TextEncoder();
     readonly #dec = new TextDecoder();
 
-    #radServiceDefinition: RadServiceDefinition;
     #nextId = 1;
     #pending = new Map<number, {
         resolve: (v: RadSchema.RadResponse) => void;
@@ -49,14 +42,28 @@ export class RadBleApi extends BleConnectionHandler {
         timer: number;
     }>();
 
-    protected ossmRadService: DiscoveredGattService<RadServiceDefinition> | null = null;
+    #radServiceDefinition: GattServiceDefinition;
+    #radCharacteristics: RadCharacteristics | null = null;
+    protected get radService(): RadCharacteristics | null { return this.#radCharacteristics; }
 
     public lease: RadLease | null = null;
     
     // #region BLE lifecycle
-    constructor(radServiceDefinition: RadServiceDefinition, device: BluetoothDevice) {
+    constructor(serviceUuid: string, device: BluetoothDevice) {
         super(device);
-        this.#radServiceDefinition = radServiceDefinition;
+
+        // Split the UUID into parts so we can build the RAD characteristic UUIDs
+        const uuidParts = serviceUuid.split("-");
+        if (uuidParts.length !== 5)
+            throw new DOMException(`Invalid service UUID: ${serviceUuid}`, "InvalidStateError");
+
+        this.#radServiceDefinition = {
+            uuid: serviceUuid,
+            characteristics: Object.fromEntries(Object.entries(RAD_CHARACTERISTIC_SUFFIXES).map(([key, suffix]) => {
+                const charUuid = `${uuidParts[0]}-${uuidParts[1]}-${uuidParts[2]}-${suffix}-${uuidParts[4]}`;
+                return [key, charUuid];
+            })) as Record<keyof typeof RAD_CHARACTERISTIC_SUFFIXES, BluetoothCharacteristicUUID>
+        }
     }
 
     /**
@@ -64,24 +71,28 @@ export class RadBleApi extends BleConnectionHandler {
      */
     protected async setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void> {
         // Discover service
-        this.ossmRadService = await BleConnectionHandler.discoverGattService(gatt, this.#radServiceDefinition);
+        let service = await BleConnectionHandler.discoverGattService(gatt, this.#radServiceDefinition);
+        /* Direct cast is fine here since discoverGattService returns a DiscoveredGattService<TDef> which matches the RadCharacteristics type
+         * and will fail if any characteristics are not found on the remote
+         */
+        this.#radCharacteristics = service.characteristics as RadCharacteristics;
 
         // Set up notifications
-        this.ossmRadService.characteristics.response.addEventListener("characteristicvaluechanged", this.#onResponseSignature);
-        await this.enqueueBleTask(() => this.ossmRadService!.characteristics.response.startNotifications());
+        this.radService!.response.addEventListener("characteristicvaluechanged", this.#onResponseSignature);
+        await this.enqueueBleTask(() => this.radService!.response.startNotifications());
 
-        this.ossmRadService.characteristics.state.addEventListener("characteristicvaluechanged", this.#onStateSignature);
-        await this.enqueueBleTask(() => this.ossmRadService!.characteristics.state.startNotifications());
+        this.radService!.state.addEventListener("characteristicvaluechanged", this.#onStateSignature);
+        await this.enqueueBleTask(() => this.radService!.state.startNotifications());
 
-        this.ossmRadService.characteristics.essentialState.addEventListener("characteristicvaluechanged", this.#onEssentialStateSignature);
-        await this.enqueueBleTask(() => this.ossmRadService!.characteristics.essentialState.startNotifications());
+        this.radService!.essentialState.addEventListener("characteristicvaluechanged", this.#onEssentialStateSignature);
+        await this.enqueueBleTask(() => this.radService!.essentialState.startNotifications());
 
-        this.ossmRadService.characteristics.event.addEventListener("characteristicvaluechanged", this.#onEventSignature);
-        await this.enqueueBleTask(() => this.ossmRadService!.characteristics.event.startNotifications());
+        this.radService!.event.addEventListener("characteristicvaluechanged", this.#onEventSignature);
+        await this.enqueueBleTask(() => this.radService!.event.startNotifications());
 
         // Validate protocol
         const info = this.#parseValueAsJson<RadSchema.ProtocolInfo>(
-            await this.enqueueBleTask(() => this.ossmRadService!.characteristics.protocolInfo.readValue()));
+            await this.enqueueBleTask(() => this.radService!.protocolInfo.readValue()));
         if (!info || info.protocol !== "rad-ble")
             throw new DOMException(`Unexpected protocol info: ${JSON.stringify(info)}`, "NotSupportedError");
     }
@@ -90,11 +101,11 @@ export class RadBleApi extends BleConnectionHandler {
      * Called before disconnecting. Cleans up any resources that were allocated during the connection
      */
     protected override async onBeforeDisconnect(): Promise<void> {
-        if (this.ossmRadService) {
-            this.ossmRadService.characteristics.response.removeEventListener("characteristicvaluechanged", this.#onResponseSignature);
-            this.ossmRadService.characteristics.state.removeEventListener("characteristicvaluechanged", this.#onStateSignature);
-            this.ossmRadService.characteristics.essentialState.removeEventListener("characteristicvaluechanged", this.#onEssentialStateSignature);
-            this.ossmRadService.characteristics.event.removeEventListener("characteristicvaluechanged", this.#onEventSignature);
+        if (this.radService) {
+            this.radService.response.removeEventListener("characteristicvaluechanged", this.#onResponseSignature);
+            this.radService.state.removeEventListener("characteristicvaluechanged", this.#onStateSignature);
+            this.radService.essentialState.removeEventListener("characteristicvaluechanged", this.#onEssentialStateSignature);
+            this.radService.event.removeEventListener("characteristicvaluechanged", this.#onEventSignature);
         }
     }
 
@@ -102,7 +113,7 @@ export class RadBleApi extends BleConnectionHandler {
      * Invalidates the stored RAD service
      */
     protected override async onDisconnected(wasConnected: boolean): Promise<void> {
-        this.ossmRadService = null;
+        this.#radCharacteristics = null;
     }
     // #endregion
 
@@ -141,7 +152,7 @@ export class RadBleApi extends BleConnectionHandler {
             this.#pending.set(id, { resolve: resolve as any, reject, timer });
 
             this.enqueueBleTask(async () => {
-                const requestChar = this.ossmRadService?.characteristics.request;
+                const requestChar = this.radService?.request;
                 if (!requestChar)
                     throw new DOMException("RAD request characteristic not available", "InvalidStateError");
                 await requestChar.writeValueWithoutResponse(payload);
@@ -312,7 +323,7 @@ export class RadBleApi extends BleConnectionHandler {
         return this.sendWithResult<T>({ op: "sensor.read", path });
     }
 
-    async getWiFiStatus(): Promise<unknown> {
+    async getWifiStatus(): Promise<unknown> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1061
         // This also calls out to a Surface:: and has no default handler, so return type is unknown here
         return this.sendWithResult({ op: "wifi.status" });
@@ -428,7 +439,7 @@ export class RadBleApi extends BleConnectionHandler {
                 const frameArray = new Uint8Array(frameBuffer);
                 frameArray.set(new Uint8Array(chunk), 14);
 
-                await this.enqueueBleTask(async () => this.ossmRadService!.characteristics.otaData.writeValueWithoutResponse(frameArray));
+                await this.enqueueBleTask(async () => this.radService!.otaData.writeValueWithoutResponse(frameArray));
 
                 onProgress?.(offset, binaryBuffer.byteLength);
                 offset += CHUNK_SIZE;
