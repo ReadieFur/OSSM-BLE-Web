@@ -77,3 +77,10 @@ export interface OssmPattern {
     name: string;
     description: string;
 }
+
+export enum OssmMenu {
+    MainMenu = "menu",
+    SimplePenetration = "simplePenetration",
+    StrokeEngine = "strokeEngine",
+    Streaming = "streaming"
+}

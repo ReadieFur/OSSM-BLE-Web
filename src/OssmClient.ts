@@ -1,5 +1,5 @@
 import { BleConnectionHandler, DiscoveredGattService, GattServiceDefinition } from "./BleConnectionHandler";
-import { OssmPattern, OssmStateCharacteristicResponse } from "./Types";
+import { OssmMenu, OssmPattern, OssmStateCharacteristicResponse, OssmStateString } from "./Types";
 
 // #region GATT schema definition
 const OSSM_DEVICE_NAME = "OSSM";
@@ -204,6 +204,64 @@ export class OssmClient extends BleConnectionHandler {
     async setWiFiCredentials(ssid: string, password: string): Promise<void> {
         if (!this.#ossmPrimaryService) throw this.#invalidStateError();
         await this.writeCharacteristic(this.#ossmPrimaryService.characteristics.command, `set:wifi:${ssid}|${password}`, (res: string) => res.startsWith("ok:wifi:"));
+    }
+
+    /**
+     * Gets the currently active menu page on the OSSM device
+     * @returns One of the {@link OssmMenu} enum values or `null` if the current state does not correspond to a known menu page
+     */
+    async getCurrentMenu(): Promise<OssmMenu | null> {
+        if (!this.#ossmPrimaryService) throw this.#invalidStateError();
+
+        const deviceState = await this.fetchState();
+
+        let currentMenu: OssmMenu | null = null;
+        switch (deviceState.state) {
+            case OssmStateString.Menu:
+            case OssmStateString.MenuIdle:
+                currentMenu = OssmMenu.MainMenu;
+                break;
+            case OssmStateString.SimplePenetration:
+            case OssmStateString.SimplePenetrationIdle:
+            case OssmStateString.SimplePenetrationPreflight:
+                currentMenu = OssmMenu.SimplePenetration;
+                break;
+            case OssmStateString.StrokeEngine:
+            case OssmStateString.StrokeEngineIdle:
+            case OssmStateString.StrokeEnginePreflight:
+            case OssmStateString.StrokeEnginePattern:
+                currentMenu = OssmMenu.StrokeEngine;
+                break;
+            case OssmStateString.Streaming:
+                currentMenu = OssmMenu.Streaming;
+                break;
+            default:
+                break;
+        }
+        return currentMenu;
+    }
+
+    /**
+     * Navigate to a specific menu page
+     * @note Use to activate the desired engine mode
+     * @param menu One of the {@link OssmMenu} enum values
+     */
+    async setCurrentMenu(menu: OssmMenu): Promise<void> {
+        if (!this.#ossmPrimaryService) throw this.#invalidStateError();
+        
+        const currentMenu = await this.getCurrentMenu();
+        if (currentMenu === menu) return;
+
+        // If the main menu isn't active, we must navigate to that first before we can navigate to another menu
+        if (currentMenu !== OssmMenu.MainMenu)
+            await this.writeCharacteristic(this.#ossmPrimaryService.characteristics.command, "go:menu", true);
+
+        // Proceed to navigate to the desired sub-menu
+        if (menu !== OssmMenu.MainMenu)
+            await this.writeCharacteristic(this.#ossmPrimaryService.characteristics.command, `go:${menu}`, true);
+
+        // Trigger an update of the current state since navigating to a new menu doesn't trigger a state change notification
+        await this.fetchState();
     }
 
     // #region Characteristic operations & helpers
