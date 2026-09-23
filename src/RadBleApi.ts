@@ -1,4 +1,5 @@
 import { BleConnectionHandler, DiscoveredGattService, GattServiceDefinition } from "./BleConnectionHandler";
+import { AutoLease, RadLease, SimpleLease } from "./RadLease";
 
 // I bless Copilot for this, there are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit
 type RequiredRadCharacteristics =
@@ -164,19 +165,25 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * Sends a RAD request to the device and waits for a response
      * @param req The request object to send. Must satisfy {@link RadRequest}
-     * @param leaseToken Optional lease token to include in the request. If the request requires a lease, this must be provided otherwise the request will fail. Use {@link acquireLease} to obtain a lease token.
+     * @param lease Optional lease to include in the request. If the request requires a lease, this must be provided otherwise the request will fail. Use {@link acquireLease} to obtain a lease.
      * @param timeoutMs Optional timeout in milliseconds to wait for a response before rejecting. Defaults to {@link defaultRadRequestTimeoutMs}
      * @returns A promise that resolves to {@link RadResponse} containing the response data
      */
     async send<T = unknown>(
         req: Omit<RadRequest, "v" | "id" | "lease">,
-        leaseToken?: number,
+        lease?: number | RadLease,
         timeoutMs: number = defaultRadRequestTimeoutMs
     ): Promise<RadResponse<T>> {
         const id = this.#nextId++;
         const request: RadRequest = { v: 1, id, ...req };
-        if (leaseToken)
-            request.lease = leaseToken;
+
+        if (lease instanceof RadLease) {
+            if (lease.isExpired)
+                throw new DOMException("Cannot send RAD request with expired lease", "InvalidStateError");
+            request.lease = lease.token!;
+        } else if (typeof lease === "number") {
+            request.lease = lease;
+        }
 
         const payload = this.#enc.encode(JSON.stringify(request));
 
@@ -273,6 +280,26 @@ export class RadBleApi extends BleConnectionHandler {
 
     // #region RAD API methods
     /**
+     * Acquires a lease from the device, which is required for certain operations that modify state.
+     * The lease token is valid for a limited time and must be renewed or released when no longer needed.
+     * @param autoRenew Whether the lease should automatically renew at 60% TTL and recover from disconnects. Defaults to false.
+     * @param ttlSeconds The time-to-live for the lease in seconds. Defaults to 10 seconds
+     * @returns A promise that resolves to a {@link RadLease} object representing the acquired lease
+     * @throws OperationError if the lease acquisition fails
+     */
+    async acquireLease(autoRenew = false, ttlSeconds = 10): Promise<SimpleLease | AutoLease> {
+        if (autoRenew) {
+            const lease = new AutoLease(this, ttlSeconds);
+            await lease.start();
+            return lease;
+        } else {
+            const lease = new SimpleLease(this, ttlSeconds);
+            await lease.acquire();
+            return lease;
+        }
+    }
+
+    /**
      * Fetches the entire catalog of commands & resources from the device, handling pagination automatically.
      * @throws DataError if the catalog response is malformed or missing data
      */
@@ -294,30 +321,6 @@ export class RadBleApi extends BleConnectionHandler {
         }
 
         return entries;
-    }
-
-    /**
-     * Acquires a lease token from the device, which is required for certain operations that modify state.
-     * The lease token is valid for a limited time and must be renewed or released when no longer needed.
-     * @param ttlSeconds The time-to-live for the lease in seconds. Defaults to 10 seconds
-     * @returns An object containing the lease token and the actual TTL in milliseconds
-     * @throws OperationError if the lease acquisition fails
-     */
-    async acquireLease(ttlSeconds = 10): Promise<{ lease: number; ttlMs: number }> {
-        const res = await this.send<{ lease: number; ttlMs: number }>({
-            op: "control.acquire",
-            args: { ttl: ttlSeconds },
-        });
-        if (!res.result?.lease) throw new DOMException("Lease acquire returned no token", "OperationError");
-        return res.result;
-    }
-
-    async renewLease(leaseToken: number, ttlSeconds = 10): Promise<void> {
-        await this.send({ op: "control.renew", args: { ttl: ttlSeconds } }, leaseToken);
-    }
-
-    async releaseLease(leaseToken: number): Promise<void> {
-        await this.send({ op: "control.release" }, leaseToken);
     }
     // #endregion
 
