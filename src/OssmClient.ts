@@ -37,7 +37,10 @@ export class OssmClient extends BleConnectionHandler {
     readonly #textDecoder = new TextDecoder();
     readonly #invalidStateError = () => new DOMException("Invalid operation exception", "NotAllowedError");
     #ossmPrimaryService: DiscoveredGattService<typeof OSSM_PRIMARY_SERVICE> | null = null;
-    
+    #verboseDebug = false;
+    set verboseDebug(value: boolean) { if (value) { this.debug = true; } this.#verboseDebug = value; }
+    get verboseDebug(): boolean { return this.debug && this.#verboseDebug; }
+
     constructor(device: BluetoothDevice) {
         super(device);
         this.debugLog(this);
@@ -76,7 +79,7 @@ export class OssmClient extends BleConnectionHandler {
             return;
         }
 
-        if (this.debug) {
+        if (this.verboseDebug) {
             console.log('Current state changed:', state);
             // console.table(state);
         }
@@ -275,7 +278,7 @@ export class OssmClient extends BleConnectionHandler {
             await this.writeCharacteristic(this.#ossmPrimaryService.characteristics.command, `go:${menu}`, true);
 
         // Trigger an update of the current state since navigating to a new menu doesn't trigger a state change notification
-        await this.fetchState();
+        await this.fetchState(); // Not strictly needed when using notifications since the device now sends them every second
     }
 
     // #region Characteristic operations & helpers
