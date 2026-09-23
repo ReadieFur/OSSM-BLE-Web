@@ -1,6 +1,7 @@
 import { BleConnectionHandler, DiscoveredGattService, GattServiceDefinition } from "./BleConnectionHandler";
 import { AutoLease, RadLease, SimpleLease } from "./RadLease";
 import * as RadSchema from "./RadProtocolSchema";
+import crc32 from "crc-32";
 
 // I bless Copilot for this, there are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
 type RequiredRadCharacteristics =
@@ -375,43 +376,94 @@ export class RadBleApi extends BleConnectionHandler {
     }
 
     /**
-     * Begins an OTA firmware update session on the device
-     * @param size Size of the binary in bytes
-     * @param sha256 SHA256 hash of the binary
-     * @param component Target partition. Defaults to "application"
+     * Performs an OTA firmware update on the device
+     * @param binaryBuffer The binary data to send to the device
+     * @param sha256 Optional SHA256 hash of the binary. If not provided, it will be calculated automatically
+     * @param component Optional target partition. Defaults to "application"
+     * @param onProgress Optional callback to receive progress updates. Called with the number of bytes sent and the total number of bytes
      * @requires A valid lease token
+     * @note **Untested**
+     * @note This also discards this RAD API instance
      */
-    async beginOta(size: number, sha256: string, component?: RadSchema.OtaComponent): Promise<RadSchema.OtaBeginResult> {
-        this.requireLease();
+    async performOta(
+        binaryBuffer: ArrayBuffer,
+        sha256?: string,
+        component?: RadSchema.OtaComponent,
+        onProgress?: (bytesSent: number, totalBytes: number) => void
+    ) {
+        if (!sha256) {
+            // Calculate SHA256 hash of the binary
+            const hashBuffer = await crypto.subtle.digest("SHA-256", binaryBuffer);
+            sha256 = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+        }
+
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1190
-        return this.sendWithResult<RadSchema.OtaBeginResult>({ op: "ota.begin", args: { size, sha256, component } }, this.lease!);
-    }
+        const beginResult = await this.sendWithResult<RadSchema.OtaBeginResult>({
+            op: "ota.begin",
+            args: {
+                size: binaryBuffer.byteLength,
+                sha256,
+                component
+            }
+        }, this.lease!);
 
-    /**
-     * @requires A valid lease token
-     */
-    async resumeOta(session: number): Promise<RadSchema.OtaResumeResult> {
-        this.requireLease();
-        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1193
-        return this.sendWithResult<RadSchema.OtaResumeResult>({ op: "ota.resume", args: { session } }, this.lease!);
-    }
+        // Transmit data
+        try {
+            const CHUNK_SIZE = 480;
+            let offset = 0;
+            while (offset < binaryBuffer.byteLength) {
+                const chunk = binaryBuffer.slice(offset, offset + CHUNK_SIZE);
+                
+                // Frame building (not gonna pretend like I know whats going on here)
+                const payloadLen = chunk.byteLength;
+                const chunkCrc = crc32.buf(new Uint8Array(chunk)) >>> 0;
+                const frameBuffer = new ArrayBuffer(14 + payloadLen);
+                const view = new DataView(frameBuffer);
 
-    /**
-     * @requires A valid lease token
-     */
-    async finishOta(session: number): Promise<RadSchema.OtaFinishResult> {
-        this.requireLease();
+                view.setUint32(0, beginResult.session, true);
+                view.setUint32(4, offset, true);
+                view.setUint32(8, payloadLen, true);
+                view.setUint32(12, chunkCrc, true);
+
+                const frameArray = new Uint8Array(frameBuffer);
+                frameArray.set(new Uint8Array(chunk), 14);
+
+                await this.enqueueBleTask(async () => this.ossmRadService!.characteristics.otaData.writeValueWithoutResponse(frameArray));
+
+                onProgress?.(offset, binaryBuffer.byteLength);
+                offset += CHUNK_SIZE;
+
+                // Throttle to avoid overwhelming the device (as OTA writes to NVS slow down the device a lot in my testing in other projects)
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        } catch (err) {
+            // If an error occurs during the OTA update, attempt to abort the update
+            try {
+                // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1215
+                await this.send({
+                    op: "ota.abort",
+                    args: {
+                        session: beginResult.session
+                    }
+                }, this.lease!);
+            }
+            catch { /* Ignore */ }
+            throw err;
+        }
+
+        // Finish OTA
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1212
-        return this.sendWithResult<RadSchema.OtaFinishResult>({ op: "ota.finish", args: { session } }, this.lease!);
-    }
+        const finishResult = await this.sendWithResult<RadSchema.OtaFinishResult>({
+            op: "ota.finish",
+            args: {
+                session: beginResult.session
+            }
+        }, this.lease!);
 
-    /**
-     * @requires A valid lease token
-     */
-    async abortOta(session: number): Promise<void> {
-        this.requireLease();
-        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1215
-        await this.send({ op: "ota.abort", args: { session } }, this.lease!);
+        if (finishResult.sha256 !== sha256)
+            throw new DOMException(`OTA update failed: SHA256 mismatch (expected ${sha256}, got ${finishResult.sha256})`, "DataError");
+
+        this.disconnect(); // This instance will be invalidated since the device will reboot at this point
     }
 
     /**
@@ -462,7 +514,7 @@ export class RadBleApi extends BleConnectionHandler {
     async restartSystem(): Promise<void> {
         this.requireLease();
         await this.send({ op: "system.restart" }, this.lease!);
-        await this.disconnect();
+        this.disconnect();
     }
 
     /**

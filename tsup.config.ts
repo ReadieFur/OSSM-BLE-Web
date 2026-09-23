@@ -89,5 +89,6 @@ export default defineConfig((options) => {
         define: {
             __VERSION__: JSON.stringify(version), // TODO: Make the 'patch' version CalVer when pushed to branch main
         },
+        noExternal: ['crc-32']
     };
 });
