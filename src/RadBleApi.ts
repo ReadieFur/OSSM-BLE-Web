@@ -307,27 +307,24 @@ export class RadBleApi extends BleConnectionHandler {
     }
 
     /**
-     * Fetches the entire catalog of commands & resources from the device, handling pagination automatically.
+     * Streams catalog entries from the device page by page, yielding entries individually
      * @throws DataError if the catalog response is malformed or missing data
      */
-    async fetchCatalog(): Promise<CatalogEntry[]> {
-        let entries: CatalogEntry[] = [];
-
+    async *fetchCatalog(): AsyncGenerator<CatalogEntry, void, unknown> {
         let page = 0;
         while (true) {
             const res = await this.send<CatalogPage>({ op: "catalog.read", args: { page } });
             if (!res.result)
                 throw new DOMException("Catalog read returned no result", "DataError");
 
-            entries.push(...res.result.resources);
+            // Yield each resource in the page
+            yield* res.result.resources;
 
             if (page >= res.result.pages - 1)
                 break;
 
             page++;
         }
-
-        return entries;
     }
     // #endregion
 
