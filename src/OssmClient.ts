@@ -49,6 +49,20 @@ export class OssmClient extends BleConnectionHandler {
     protected async setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void> {
         this.#ossmPrimaryService = await BleConnectionHandler.discoverGattService(gatt, OSSM_PRIMARY_SERVICE);
         this.#ossmPrimaryService.characteristics.currentState.addEventListener("characteristicvaluechanged", this.handleCurrentStateChanged.bind(this));
+        await this.#ossmPrimaryService.characteristics.currentState.startNotifications();
+    }
+
+    protected override async onBeforeDisconnect(): Promise<void> {
+        const currentStateChar = this.#ossmPrimaryService?.characteristics?.currentState;
+        if (currentStateChar && this.isConnected) {
+            try { await currentStateChar.stopNotifications(); }
+            catch (error) { /* Ignore errors here */ }
+        }
+    }
+
+    protected override async onDisconnected(wasConnected: boolean): Promise<void> {
+        this.#ossmPrimaryService?.characteristics?.currentState?.removeEventListener("characteristicvaluechanged", this.handleCurrentStateChanged.bind(this));
+        this.#ossmPrimaryService = null;
     }
 
     /**
