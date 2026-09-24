@@ -1,4 +1,5 @@
 import { AsyncFunctionQueue } from "./AsyncQueue";
+import { SingleEvent, SingleEventSource } from "./SingleEvent";
 
 export enum BleConnectionState {
     Disconnected = "disconnected",
@@ -7,8 +8,6 @@ export enum BleConnectionState {
     Reconnecting = "reconnecting",
     Disconnecting = "disconnecting",
 }
-
-export type BleEventCallback<T = any> = (data: T) => void;
 
 export interface GattServiceDefinition {
     uuid: BluetoothServiceUUID;
@@ -26,26 +25,24 @@ export type DiscoveredGattService<TDef extends GattServiceDefinition> = {
  * Generic web-bluetooth connection handler
  */
 export abstract class BleConnectionHandler implements Disposable {
-    readonly #handleGattDisconnectedSignature = this.handleGattDisconnected.bind(this);
+    readonly #handleGattDisconnectedSignature = this.#handleGattDisconnected.bind(this);
+
+    #connectionState: BleConnectionState = BleConnectionState.Disconnected;
 
     protected readonly device: BluetoothDevice;
     protected readonly taskQueue = new AsyncFunctionQueue();
 
-    private _connectionState: BleConnectionState = BleConnectionState.Disconnected;
-    private _eventListeners: Map<string, BleEventCallback[]> = new Map();
+    readonly connectedEvent: SingleEvent = new SingleEventSource();
+    readonly disconnectedEvent: SingleEvent = new SingleEventSource();
+    readonly reconnectingEvent: SingleEvent = new SingleEventSource();
 
-    public debug: boolean = window?.location?.hostname === "localhost" || new URLSearchParams(window?.location?.search).has("dev");
-    public autoReconnect: boolean = true;
-    public reconnectTimeoutMs: number = 5000;
-    public reconnectRetryDelayMs: number = 250;
+    debug: boolean = window?.location?.hostname === "localhost" || new URLSearchParams(window?.location?.search).has("dev");
+    autoReconnect: boolean = true;
+    reconnectTimeoutMs: number = 5000;
+    reconnectRetryDelayMs: number = 250;
 
-    get connectionState(): BleConnectionState {
-        return this._connectionState;
-    }
-
-    get isConnected(): boolean {
-        return this._connectionState === BleConnectionState.Connected && !!this.device.gatt?.connected;
-    }
+    get connectionState(): BleConnectionState {return this.#connectionState; }
+    get isConnected(): boolean { return this.#connectionState === BleConnectionState.Connected && !!this.device.gatt?.connected; }
 
     constructor(device: BluetoothDevice) {
         this.device = device;
@@ -59,36 +56,11 @@ export abstract class BleConnectionHandler implements Disposable {
         this.disconnect();
     }
 
-    // #region Event handling
-    public addEventListener(event: string, callback: BleEventCallback): void {
-        if (!this._eventListeners.has(event))
-            this._eventListeners.set(event, []);
-        this._eventListeners.get(event)!.push(callback);
-    }
-
-    public removeEventListener(event: string, callback: BleEventCallback): void {
-        const callbacks = this._eventListeners.get(event);
-        if (!callbacks) return;
-        const index = callbacks.indexOf(callback);
-        if (index !== -1)
-            callbacks.splice(index, 1);
-    }
-
-    protected dispatchEvent(event: string, data?: any): void {
-        const callbacks = this._eventListeners.get(event);
-        if (!callbacks) return;
-        for (const cb of callbacks) {
-            try { cb(data); }
-            catch (err) { this.debugLog(`Error in event callback for ${event}:`, err); }
-        }
-    }
-    // #endregion
-
     //#region Connection lifecycle
     /**
      * Begins automatic connection and lifecycle management
      */
-    public async begin(): Promise<void> {
+    async begin(): Promise<void> {
         try { await this.connect(); }
         catch (error) { this.debugLog("Initial connection attempt failed.", error); }
     }
@@ -96,9 +68,9 @@ export abstract class BleConnectionHandler implements Disposable {
     /**
      * Gracefully disconnects from the device and halts auto-reconnection
      */
-    public async disconnect(): Promise<void> {
+    async disconnect(): Promise<void> {
         this.autoReconnect = false;
-        this._connectionState = BleConnectionState.Disconnecting;
+        this.#connectionState = BleConnectionState.Disconnecting;
         this.taskQueue.clearQueue("Disconnecting from device.");
 
         await this.onBeforeDisconnect();
@@ -106,43 +78,43 @@ export abstract class BleConnectionHandler implements Disposable {
         if (this.device.gatt?.connected)
             this.device.gatt.disconnect();
 
-        this._connectionState = BleConnectionState.Disconnected;
-        this.dispatchEvent("disconnected");
+        this.#connectionState = BleConnectionState.Disconnected;
+        (this.disconnectedEvent as SingleEventSource).dispatch();
     }
 
     protected async connect(): Promise<void> {
-        if (this.device.gatt?.connected && this._connectionState === BleConnectionState.Connected)
+        if (this.device.gatt?.connected && this.#connectionState === BleConnectionState.Connected)
             return;
 
-        this._connectionState = BleConnectionState.Connecting;
+        this.#connectionState = BleConnectionState.Connecting;
         this.taskQueue.clearQueue("Initiating new connection, clearing stale tasks.");
 
         this.debugLog("Connecting GATT server...");
         let gattServer = await this.taskQueue.enqueue(() => this.device.gatt!.connect());
         await this.setupServicesAndCharacteristics(gattServer);
 
-        this._connectionState = BleConnectionState.Connected;
+        this.#connectionState = BleConnectionState.Connected;
         this.debugLog("Connected");
-        this.dispatchEvent("connected");
+        (this.connectedEvent as SingleEventSource).dispatch();
     }
 
-    private async handleGattDisconnected(): Promise<void> {
-        const wasConnected = this._connectionState === BleConnectionState.Connected;
-        this._connectionState = BleConnectionState.Disconnected;
+    async #handleGattDisconnected(): Promise<void> {
+        const wasConnected = this.#connectionState === BleConnectionState.Connected;
+        this.#connectionState = BleConnectionState.Disconnected;
         this.debugLog("Disconnected");
 
-        this.dispatchEvent("disconnected");
+        (this.disconnectedEvent as SingleEventSource).dispatch();
 
         await this.onDisconnected(wasConnected);
 
         if (this.autoReconnect)
-            await this.runReconnectLoop();
+            await this.#runReconnectLoop();
     }
 
-    private async runReconnectLoop(): Promise<void> {
-        this._connectionState = BleConnectionState.Reconnecting;
-        this.dispatchEvent("reconnecting");
+    async #runReconnectLoop(): Promise<void> {
+        this.#connectionState = BleConnectionState.Reconnecting;
         this.debugLog("Reconnecting...");
+        (this.reconnectingEvent as SingleEventSource).dispatch();
 
         let attempt = 0;
 

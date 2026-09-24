@@ -43,7 +43,7 @@ export class SimpleLease extends RadLease implements Disposable {
         super();
         this.api = api;
         this.ttlSeconds = ttlSeconds;
-        this.api.addEventListener("disconnected", this.#disconnectSignature);
+        this.api.disconnectedEvent.subscribe(this.#disconnectSignature);
     }
 
     [Symbol.dispose](): void {
@@ -101,7 +101,7 @@ export class SimpleLease extends RadLease implements Disposable {
             catch { /* Ignore disconnect or teardown errors */ }
         }
 
-        this.api.removeEventListener("disconnected", this.#disconnectSignature);
+        this.api.disconnectedEvent.unsubscribe(this.#disconnectSignature);
     }
 }
 

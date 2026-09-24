@@ -1,9 +1,9 @@
-import { BleConnectionHandler, DiscoveredGattService, GattServiceDefinition } from "./BleConnectionHandler";
+import { BleConnectionHandler, GattServiceDefinition } from "./BleConnectionHandler";
 import { AutoLease, RadLease, SimpleLease } from "./RadLease";
 import * as Schema from "./RadProtocolSchema";
 import crc32 from "crc-32";
 
-/* I bless Copilot for helping my find the core of how this RAD API works (namley around the request/response handling)
+/* I bless Copilot for helping my find the core of how this RAD API works (namely around the request/response handling)
  * There are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
  */
 /* https://github.com/researchanddesire/rad-ble/blob/main/src/RadBleProtocol.generated.h
@@ -98,7 +98,7 @@ export class RadBleApi extends BleConnectionHandler {
         // Validate protocol
         const info = this.#parseValueAsJson<Schema.RadProtocolInfo>(
             await this.enqueueBleTask(() => this.radService!.protocolInfo.readValue()));
-        if (!info || info.protocol !== "rad-ble")
+        if (!info || info?.protocol !== "rad-ble" || info?.version !== 1)
             throw new DOMException(`Unexpected protocol info: ${JSON.stringify(info)}`, "NotSupportedError");
     }
 
@@ -237,7 +237,7 @@ export class RadBleApi extends BleConnectionHandler {
             const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
             if (!value) return;
             const msg = this.#parseValueAsJson(value);
-            this.dispatchEvent("state", msg);
+            this.debugLog("RAD state notification:", msg);
         } catch (e) {
             console.error("Failed to parse RAD state notification:", e);
         }
@@ -249,7 +249,7 @@ export class RadBleApi extends BleConnectionHandler {
             const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
             if (!value) return;
             const msg = this.#parseValueAsJson(value);
-            this.dispatchEvent("essentialState", msg);
+            this.debugLog("RAD essential state notification:", msg);
         } catch (e) {
             console.error("Failed to parse RAD essential state notification:", e);
         }
@@ -261,7 +261,6 @@ export class RadBleApi extends BleConnectionHandler {
             const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
             if (!value) return;
             const msg = this.#parseValueAsJson(value);
-            this.dispatchEvent("event", msg);
         } catch (e) {
             console.error("Failed to parse RAD event notification:", e);
         }
