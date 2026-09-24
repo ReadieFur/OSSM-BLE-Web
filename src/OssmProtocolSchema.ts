@@ -112,5 +112,4 @@ export enum OssmMenu {
     StrokeEngine = "strokeEngine",
     Streaming = "streaming",
     Pairing = "pairing",
-    
 }
