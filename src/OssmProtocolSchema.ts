@@ -5,12 +5,13 @@
 
 import * as RadSchema from "./RadProtocolSchema";
 
-// https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp#L574
+// #region Surface
+// https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp#L570
+
 export interface OssmStateSnapshot extends RadSchema.RadState {
     state: string;
 }
 
-// https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp#L584
 export interface OssmEssentialSnapshot {
     state: string;
     powered: boolean;
@@ -21,23 +22,70 @@ export interface OssmEssentialSnapshot {
     sessionStrokeCount: number;
 }
 
-// https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp#L601
 export type OssmButtonSnapshot = Array<{
     id: string;
     pressed: boolean;
 }>
+
+export interface OssmEncoderSnapshot {
+    id: "encoder";
+    value: number;
+}
+
+export interface OssmAnalogSnapshot {
+    speedKnob: number;
+    speedKnobPercent: number;
+    motorCurrent: number;
+    motorCurrentFiltered: number;
+    expansion1: number;
+    expansion2: number;
+    expansion3: number;
+    expansion4: number;
+}
+
+export interface OssmMotionSnapshot {
+    homed: boolean;
+    positionMm: number;
+    speed: number;
+    stroke: number;
+    depth: number;
+    sensation: number;
+    buffer: number;
+    pattern: number;
+    targetPosition: number;
+    targetTimeMs: number;
+    strokeCount: number;
+    distanceMeters: number;
+}
+
+export interface OssmConnectivitySnapshot {
+    wifi: string;
+    rssi: number;
+    ip: string;
+    ble: boolean;
+}
+
+export interface OssmIndicatorSnapshot {
+    id: "led";
+    r: number;
+    g: number;
+    b: number;
+}
+// #endregion
 
 export interface OssmReadResult<T> {
     path: string;
     value: T;
 }
 
+// https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp#L196
 export interface OssmWifiStatus {
     connected: boolean;
     rssi?: number;
     ip?: string;
 }
 
+// https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp#L570
 export interface OssmFirmwareProvenance {
     origin: string;
     keyId: string;

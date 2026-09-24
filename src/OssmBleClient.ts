@@ -39,6 +39,10 @@ export class OssmBleClient extends RadBleApi {
         return super.getEssentialSnapshot() as any as Schema.OssmEssentialSnapshot;
     }
 
+    override async getConnectivitySnapshot(): Promise<Schema.OssmConnectivitySnapshot> {
+        return super.getConnectivitySnapshot() as any as Schema.OssmConnectivitySnapshot;
+    }
+
     // #region setting.read
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L239
 
@@ -218,6 +222,10 @@ export class OssmBleClient extends RadBleApi {
         const { path, ...wifiStatus } = readResult;
         return wifiStatus;
     }
+    // #endregion
+
+    // #region setting.write
+
     // #endregion
 
     /**

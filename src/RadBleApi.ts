@@ -342,7 +342,7 @@ export class RadBleApi extends BleConnectionHandler {
         return this.readSensor<unknown>("essential.live");
     }
 
-    async getWifiSnapshot(): Promise<unknown> {
+    async getConnectivitySnapshot(): Promise<unknown> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1061
         // This also calls out to a Surface:: and has no default handler, so return type is unknown here
         return this.sendWithResult({ op: "wifi.status" });
@@ -534,7 +534,7 @@ export class RadBleApi extends BleConnectionHandler {
      * Configures the device to connect to a WiFi network.
      * @param ssid The SSID of the WiFi network to connect to
      * @param password Optional password for the WiFi network
-     * @returns Void when the credentials have been saved and the device has requested to connect. This does not guarantee that the connection was successful, only that the device has accepted the request to connect. Use {@link getWifiSnapshot} to check the connection status.
+     * @returns Void when the credentials have been saved and the device has requested to connect. This does not guarantee that the connection was successful, only that the device has accepted the request to connect. Use {@link getConnectivitySnapshot} to check the connection status.
      * @requires A valid lease token
      */
     async wifiConfigure(ssid: string, password?: string): Promise<void> {
