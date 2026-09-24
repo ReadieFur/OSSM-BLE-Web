@@ -30,6 +30,84 @@ export class OssmBleClient extends RadBleApi {
      * https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L570
      */
 
+    // Shadow the base class getStateSnapshot to return the OSSM-specific StateSnapshot type
+    override async getStateSnapshot(): Promise<Schema.OssmStateSnapshot> {
+        return super.getStateSnapshot();
+    }
+
+    override async getEssentialSnapshot(): Promise<Schema.OssmEssentialSnapshot> {
+        return super.getEssentialSnapshot() as any as Schema.OssmEssentialSnapshot;
+    }
+
+    // #region setting.read
+    // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L239
+
+    async getSpeed(): Promise<number> {
+        return (await this.readSetting<Schema.OssmReadResult<number>>("motion.speed")).value;
+    }
+
+    async getStroke(): Promise<number> {
+        return (await this.readSetting<Schema.OssmReadResult<number>>("motion.stroke")).value;
+    }
+
+    async getDepth(): Promise<number> {
+        return (await this.readSetting<Schema.OssmReadResult<number>>("motion.depth")).value;
+    }
+
+    /**
+     * Gets the 'sensation' setting which is often used as an arbitrary parameter value for the set StrokeEngine pattern
+     */
+    async getSensation(): Promise<number> {
+        return (await this.readSetting<Schema.OssmReadResult<number>>("motion.sensation")).value;
+    }
+
+    async getBuffer(): Promise<number> {
+        return (await this.readSetting<Schema.OssmReadResult<number>>("motion.buffer")).value;
+    }
+
+    /**
+     * Gets the current active pattern idx for the StrokeEngine
+     */
+    async getActivePatternIndex(): Promise<number> {
+        return (await this.readSetting<Schema.OssmReadResult<number>>("motion.pattern")).value;
+    }
+
+    async getSpeedBle(): Promise<number> {
+        // I believe this gets the 'simulated' ble speed for when the speed knob limit is enabled?
+        return (await this.readSetting<Schema.OssmReadResult<number>>("motion.speedBle")).value;
+    }
+
+    async isSpeedKnobLimitEnabled(): Promise<boolean> {
+        return (await this.readSetting<Schema.OssmReadResult<boolean>>("setting.speedKnobAsLimit")).value;
+    }
+
+    async getLatencyCompensation(): Promise<number> {
+        return (await this.readSetting<Schema.OssmReadResult<number>>("setting.latencyCompensation")).value;
+    }
+
+    async getDisplayMetric(): Promise<string> {
+        return (await this.readSetting<Schema.OssmReadResult<string>>("setting.displayMetric")).value;
+    }
+
+    async getAfterHomingPosition(): Promise<number> {
+        return (await this.readSetting<Schema.OssmReadResult<number>>("setting.afterHomingPosition")).value;
+    }
+
+    async getMqttPublishFrequency(): Promise<number> {
+        return (await this.readSetting<Schema.OssmReadResult<number>>("setting.mqttPublishFrequency")).value;
+    }
+
+    override async getDeviceName(): Promise<string> {
+        return (await this.readSetting<Schema.OssmReadResult<string>>("setting.deviceName")).value;
+    }
+
+    async getFirmwareProvenance() {
+        const result = await this.readSetting<{ path: string } & Schema.OssmFirmwareProvenance>("device.firmwareProvenance");
+        const { path, ...provenance } = result;
+        return provenance;
+    }
+    // #endregion
+
     // #region sensor.read
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L241
 
