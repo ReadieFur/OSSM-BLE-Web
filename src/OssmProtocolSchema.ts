@@ -105,3 +105,12 @@ export enum OssmButtonClickType {
     Double = "double",
     Long = "long"
 }
+
+export enum OssmMenu {
+    MainMenu = "menu",
+    SimplePenetration = "simplePenetration",
+    StrokeEngine = "strokeEngine",
+    Streaming = "streaming",
+    Pairing = "pairing",
+    
+}

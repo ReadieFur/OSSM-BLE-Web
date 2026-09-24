@@ -330,7 +330,7 @@ export class OssmBleClient extends RadBleApi {
         await this.emitEvent("button.enter", { event: clickType });
     }
 
-    async returnToMenu(): Promise<void> {
+    async emitReturnToMenuEvent(): Promise<void> {
         await this.emitEvent("event.returnToMenu");
     }
 
@@ -342,16 +342,53 @@ export class OssmBleClient extends RadBleApi {
         await this.emitEvent("event.error");
     }
 
-    async goHome(): Promise<void> {
+    async emitGoHomeEvent(): Promise<void> {
         await this.emitEvent("event.home");
     }
 
-    async emergencyStop(): Promise<void> {
+    async emitEmergencyStopEvent(): Promise<void> {
         await this.emitEvent("event.emergencyStop");
     }
 
     async emitUpdateUnavailableEvent(): Promise<void> {
         await this.emitEvent("event.updateUnavailable");
+    }
+    // #endregion
+
+    // #region target.set
+    async navigateTo(menu: Schema.OssmMenu): Promise<void> {
+        this.requireLease();
+        const result = await this.send<{ deferred?: true }>({ op: "target.set", path: `target.${menu}` }, this.lease!);
+        // TODO: If the task is deferred figure out how to wait for it to complete
+    }
+
+    /** Runs the calibration task on the machine */
+    async homeRail(): Promise<void> {
+        this.requireLease();
+        this.send({ op: "target.set", path: "target.home" }, this.lease!);
+    }
+
+    /** Emergency stops the device */
+    async emergencyStop(): Promise<void> {
+        this.requireLease();
+        this.send({ op: "target.set", path: "target.emergencyStop" }, this.lease!);
+    }
+
+    /**
+     * @param position The new target position to move to
+     * @param durationMs The time in milliseconds it takes to transition to the new position
+     * @note Requires the device to be in {@link Schema.OssmMenu.Streaming} mode
+     */
+    async streamPosition(position: number, durationMs: number): Promise<void> {
+        this.requireLease();
+        this.send({
+            op: "target.set",
+            path: "motion.position",
+            args: {
+                value: position,
+                durationMs
+            }
+        }, this.lease!);
     }
     // #endregion
 
