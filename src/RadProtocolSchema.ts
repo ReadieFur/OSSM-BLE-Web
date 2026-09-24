@@ -10,7 +10,7 @@ export interface RadResponse<T = unknown> {
     id: number;
     stage: RadStage;
     ok: boolean;
-    code?: string;
+    code?: ResultCode;
     message?: string;
     result?: T;
     stateBefore?: string;
@@ -25,6 +25,46 @@ export interface RadRequest {
     args?: Record<string, unknown>;
     lease?: number;
     ifState?: string;
+}
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/protocol/rad-ble-v1.json#L96
+export enum ResultCode {
+    Ok = "ok",
+    Aborted = "aborted",
+    BeginFailed = "begin_failed",
+    Busy = "busy",
+    CrcMismatch = "crc_mismatch",
+    HardwareFault = "hardware_fault",
+    HardwareUnavailable = "hardware_unavailable",
+    ImageTooLarge = "image_too_large",
+    IncompleteImage = "incomplete_image",
+    InvalidArgs = "invalid_args",
+    InvalidFrame = "invalid_frame",
+    InvalidOffset = "invalid_offset",
+    InvalidRequest = "invalid_request",
+    InvalidSession = "invalid_session",
+    InvalidState = "invalid_state",
+    InvalidValue = "invalid_value",
+    LeaseConflict = "lease_conflict",
+    LeaseExpired = "lease_expired",
+    LeaseReleased = "lease_released",
+    LeaseRequired = "lease_required",
+    NetworkFailed = "network_failed",
+    NotReady = "not_ready",
+    OtaNotStarted = "ota_not_started",
+    OtaUnavailable = "ota_unavailable",
+    OutOfMemory = "out_of_memory",
+    PreflightFailed = "preflight_failed",
+    ResourceUnavailable = "resource_unavailable",
+    ResumeTimeout = "resume_timeout",
+    ShaFailed = "sha_failed",
+    ShaMismatch = "sha_mismatch",
+    StorageFailed = "storage_failed",
+    UnknownPath = "unknown_path",
+    Unsupported = "unsupported",
+    UnsupportedPartition = "unsupported_partition",
+    VerifyFailed = "verify_failed",
+    WriteFailed = "write_failed"
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L950
