@@ -6,16 +6,17 @@
 export type RadStage = "accepted" | "completed" | "failed";
 
 export interface RadResponse<T = unknown> {
-    v: number;
+    v: 1;
     id: number;
     stage: RadStage;
     ok: boolean;
-    code?: ResultCode;
+    code?: RadResultCode;
     message?: string;
     result?: T;
     stateBefore?: string;
     stateAfter?: string;
 }
+
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L847
 export interface RadRequest {
     v: 1;
@@ -28,7 +29,7 @@ export interface RadRequest {
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/protocol/rad-ble-v1.json#L96
-export enum ResultCode {
+export enum RadResultCode {
     Ok = "ok",
     Aborted = "aborted",
     BeginFailed = "begin_failed",
@@ -68,13 +69,13 @@ export enum ResultCode {
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L950
-export interface ControlAcquireResult {
+export interface RadControlAcquireResult {
     lease: number;
     ttlMs: number;
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L2003
-export interface ProtocolInfoCompact {
+export interface RadProtocolInfoCompact {
     protocol: string;
     version: number;
     libraryVersion: string;
@@ -88,7 +89,7 @@ export interface ProtocolInfoCompact {
     capabilities: string[];
 }
 
-export interface ProtocolInfo extends ProtocolInfoCompact {
+export interface RadProtocolInfo extends RadProtocolInfoCompact {
     maxMtu: number;
     maxMessageBytes: number;
     stateHeartbeatMs: number;
@@ -98,7 +99,7 @@ export interface ProtocolInfo extends ProtocolInfoCompact {
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1010
-export interface OtaCapabilities {
+export interface RadOtaCapabilities {
     direct: boolean;
     network: boolean;
     verified: boolean;
@@ -111,16 +112,16 @@ export interface OtaCapabilities {
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L2051
-export interface CatalogPage {
+export interface RadCatalogPage {
     page: number;
     pageSize: number;
     total: number;
     pages: number;
-    resources: CatalogEntry[];
+    resources: RadCatalogEntry[];
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L2061
-export interface CatalogEntry {
+export interface RadCatalogEntry {
     id: string;
     path: string;
     category: string;
@@ -137,7 +138,7 @@ export interface CatalogEntry {
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1966
-export type State<T extends Record<string, unknown> = Record<string, unknown>> = T & {
+export type RadState<T extends Record<string, unknown> = Record<string, unknown>> = T & {
     state: string;
     v: number;
     sequence: number;
@@ -151,7 +152,7 @@ export type State<T extends Record<string, unknown> = Record<string, unknown>> =
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1121
-export interface SensorReadManyEntry<T = unknown> {
+export interface RadSensorReadManyEntry<T = unknown> {
     path: string;
     ok: boolean;
     code?: string;
@@ -159,7 +160,7 @@ export interface SensorReadManyEntry<T = unknown> {
 } 
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1593
-export interface StreamResult {
+export interface RadStreamResult {
     streamId: number;
     path: string;
     surface: string;
@@ -168,34 +169,34 @@ export interface StreamResult {
     encoding: 'json-v1';
 }
 
-export type OtaComponent = "application" | "filesystem";
+export type RadOtaComponent = "application" | "filesystem";
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1393
-export interface OtaBeginResult {
+export interface RadOtaBeginResult {
     session: number;
     offset: 0;
     chunkMax: 480;
     size: number;
-    component: OtaComponent;
+    component: RadOtaComponent;
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1204
-export interface OtaResumeResult {
+export interface RadOtaResumeResult {
     session: number;
     offset: number;
     size: number;
-    component: OtaComponent;
+    component: RadOtaComponent;
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1434
-export interface OtaFinishResult {
+export interface RadOtaFinishResult {
     size: number;
     sha256: string;
-    component: OtaComponent;
+    component: RadOtaComponent;
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1688
-export interface WiFiScanResult {
+export interface RadWiFiScanResult {
     running: boolean;
     count: number;
     partial?: true;
@@ -207,7 +208,7 @@ export interface WiFiScanResult {
 }
 
 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L760
-export interface SetDeviceNameResult {
+export interface RadSetDeviceNameResult {
     name: string;
     default: string;
     custom: boolean;

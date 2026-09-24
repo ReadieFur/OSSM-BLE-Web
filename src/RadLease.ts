@@ -1,5 +1,5 @@
 import { RadBleApi } from "./RadBleApi";
-import { ControlAcquireResult } from "./RadProtocolSchema";
+import { RadControlAcquireResult } from "./RadProtocolSchema";
 
 export abstract class RadLease {
     abstract get token(): number | null;
@@ -63,7 +63,7 @@ export class SimpleLease extends RadLease implements Disposable {
         if (this._disposed) throw new DOMException("Lease has been released", "InvalidStateError");
 
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L924
-        const res = await this.api.sendWithResult<ControlAcquireResult>({
+        const res = await this.api.sendWithResult<RadControlAcquireResult>({
             op: "control.acquire",
             args: { ttl: this.ttlSeconds },
         });
