@@ -321,6 +321,8 @@ export class OssmBleClient extends RadBleApi {
     // #endregion
 
     // #region [input|event].emit
+    // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L431
+
     private async emitEvent(path: string, args?: Record<string, unknown>): Promise<void> {
         this.requireLease();
         await this.send({ op: "event.emit", path, args }, this.lease!);
@@ -356,6 +358,8 @@ export class OssmBleClient extends RadBleApi {
     // #endregion
 
     // #region target.set
+    // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L465
+
     async navigateTo(menu: Schema.OssmMenu): Promise<void> {
         this.requireLease();
         const result = await this.send<{ deferred?: true }>({ op: "target.set", path: `target.${menu}` }, this.lease!);
@@ -392,6 +396,27 @@ export class OssmBleClient extends RadBleApi {
     }
     // #endregion
 
+    // #region encoder.[set|delta]
+    // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L530
+
+    /**
+     * Writes a value to the encoder
+     * @param value The value to write to the encoder
+     * @param isAbsolute When 'true' the value is written as-is to the encoder. When 'false' the value is added to the current encoder value
+     */
+    async encoderWrite(value: number, isAbsolute: boolean) {
+        this.requireLease();
+        await this.send({
+            op: isAbsolute ? "encoder.set" : "encoder.delta",
+            path: "encoder.main",
+            args: isAbsolute ? { value } : { delta: value }
+        });
+    }
+    // #endregion
+
+    // #region indicator.set
+    // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L547
+
     /**
      * Set the OSSM LED indicator to a specific color
      * @param r The red component of the color (0-255)
@@ -404,4 +429,5 @@ export class OssmBleClient extends RadBleApi {
         // Range validation will be left to the firmware
         await this.send({ op: "indicator.set", path: "indicator.status", args: { r, g, b } }, this.lease!);
     }
+    // #endregion
 }
