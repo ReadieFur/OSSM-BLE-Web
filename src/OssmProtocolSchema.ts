@@ -93,3 +93,9 @@ export interface OssmFirmwareProvenance {
     imageSha256: string;
     compactJws: string;
 }
+
+export enum OssmGpioPinMode {
+    Input = "input",
+    InputPullup = "inputPullup",
+    Output = "output"
+}

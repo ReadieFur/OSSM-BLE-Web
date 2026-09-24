@@ -3,7 +3,11 @@
  * https://github.com/researchanddesire/rad-ble/blob/main/src/RadBle.cpp
  */
 
-export type RadStage = "accepted" | "completed" | "failed";
+export enum RadStage {
+    Accepted = "accepted",
+    Completed = "completed",
+    Failed = "failed"
+}
 
 export interface RadResponse<T = unknown> {
     v: 1;

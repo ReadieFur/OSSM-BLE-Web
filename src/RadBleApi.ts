@@ -573,15 +573,13 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns The value of the setting
      * @requires A valid lease token
      */
-    async writeSetting<T = unknown>(path: string, value: unknown): Promise<T> {
+    async writeSetting<T = unknown>(path: string, args: Record<string, unknown>): Promise<T> {
         this.requireLease();
         // Handled by abstract command handler, compile time type is unknown
         return this.sendWithResult<T>({
             op: "setting.write",
             path,
-            args: {
-                value
-            }
+            args
         }, this.lease!);
     }
 
@@ -603,7 +601,7 @@ export class RadBleApi extends BleConnectionHandler {
 
     async setDeviceName(name: string): Promise<Schema.RadSetDeviceNameResult> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L714
-        return this.writeSetting<Schema.RadSetDeviceNameResult>("device.name", name);
+        return this.writeSetting<Schema.RadSetDeviceNameResult>("device.name", { value: name });
     }
 
     async resetDeviceName(): Promise<void> {

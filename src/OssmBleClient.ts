@@ -81,7 +81,7 @@ export class OssmBleClient extends RadBleApi {
         return (await this.readSetting<Schema.OssmReadResult<number>>("motion.speedBle")).value;
     }
 
-    async isSpeedKnobLimitEnabled(): Promise<boolean> {
+    async isSpeedKnobAsLimit(): Promise<boolean> {
         return (await this.readSetting<Schema.OssmReadResult<boolean>>("setting.speedKnobAsLimit")).value;
     }
 
@@ -225,7 +225,99 @@ export class OssmBleClient extends RadBleApi {
     // #endregion
 
     // #region setting.write
+    // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L309
 
+    /** Sets the pin to output mode and writes the given value */
+    async setGpioPin(pin: number, value: number): Promise<void>;
+    /** Sets a pin to input mode */
+    async setGpioPin(pin: number, mode: Extract<Schema.OssmGpioPinMode, "input" | "inputPullup">): Promise<void>;
+    /** @deprecated Use the overloaded methods instead */
+    async setGpioPin(pin: number, modeOrValue: Schema.OssmGpioPinMode | number): Promise<void> {
+        let finalMode: Schema.OssmGpioPinMode;
+        let finalValue: number | undefined;
+
+        if (typeof modeOrValue === "number") {
+            finalMode = Schema.OssmGpioPinMode.Output;
+            finalValue = modeOrValue;
+        } else {
+            finalMode = modeOrValue;
+            finalValue = undefined;
+        }
+
+        await this.writeSetting(`analog.expansion${pin}`, {
+            mode: finalMode,
+            value: finalValue
+        });
+    }
+
+    /**
+     * Configure whether speed knob acts as upper limit for BLE speed commands
+     * @param value
+     * **When** `true`: BLE speed commands (0-100) are treated as a percentage of the current physical knob value  
+     * Example: Knob at 50%, BLE command `set:speed:80` → Effective speed = 40%  
+     * **When** `false`: BLE speed commands (0-100) are used directly as the speed value  
+     * Example: BLE command `set:speed:80` → Effective speed = 80%
+     */
+    async setSpeedKnobAsLimit(value: boolean): Promise<void> {
+        await this.writeSetting("setting.speedKnobAsLimit", { value });
+    }
+
+    async setLatencyCompensation(value: boolean): Promise<void> {
+        await this.writeSetting("setting.latencyCompensation", { value });
+    }
+
+    async setDisplayMetric(value: boolean): Promise<void> {
+        await this.writeSetting("setting.displayMetric", { value });
+    }
+
+    async setAfterHomingPosition(value: number): Promise<void> {
+        await this.writeSetting("setting.afterHomingPosition", { value });
+    }
+
+    async setMqttPublishFrequency(value: number): Promise<void> {
+        await this.writeSetting("setting.mqttPublishFrequency", { value });
+    }
+
+    async setSpeedBle(value: number): Promise<void> {
+        await this.writeSetting("motion.speedBle", { value });
+    }
+
+    // override async setDeviceName(name: string): Promise<void> {
+    //     await this.writeSetting("setting.deviceName", { value: name });
+    // }
+
+    /**
+     * Sets the active pattern for the StrokeEngine
+     * @param patternIdx The index of the pattern to set. See {@link}
+     */
+    async setPattern(patternIdx: number): Promise<void> {
+        await this.writeSetting("motion.pattern", { value: patternIdx });
+    }
+
+    /** @param value The speed value between 0 and 100 */
+    async setSpeed(value: number): Promise<void> {
+        await this.writeSetting("motion.speed", { value });
+    }
+
+    /** @param value The stroke length value between 0 and 100 */
+    async setStroke(value: number): Promise<void> {
+        await this.writeSetting("motion.stroke", { value });
+    }
+
+    /** @param value The depth value between 0 and 100 */
+    async setDepth(value: number): Promise<void> {
+        await this.writeSetting("motion.depth", { value });
+    }
+
+    /** @param value The sensation value between 0 and 100 */
+    async setSensation(value: number): Promise<void> {
+        await this.writeSetting("motion.sensation", { value });
+    }
+
+    /** @param value The buffer value between 0 and 100 */
+    async setBuffer(value: number): Promise<void> {
+        await this.writeSetting("motion.buffer", { value });
+    }
     // #endregion
 
     /**
