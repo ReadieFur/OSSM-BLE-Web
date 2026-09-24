@@ -99,3 +99,9 @@ export enum OssmGpioPinMode {
     InputPullup = "inputPullup",
     Output = "output"
 }
+
+export enum OssmButtonClickType {
+    Single = "click",
+    Double = "double",
+    Long = "long"
+}

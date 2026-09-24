@@ -320,6 +320,41 @@ export class OssmBleClient extends RadBleApi {
     }
     // #endregion
 
+    // #region [input|event].emit
+    private async emitEvent(path: string, args?: Record<string, unknown>): Promise<void> {
+        this.requireLease();
+        await this.send({ op: "event.emit", path, args }, this.lease!);
+    }
+
+    async emitButtonEvent(clickType: Schema.OssmButtonClickType): Promise<void> {
+        await this.emitEvent("button.enter", { event: clickType });
+    }
+
+    async returnToMenu(): Promise<void> {
+        await this.emitEvent("event.returnToMenu");
+    }
+
+    async emitDoneEvent(): Promise<void> {
+        await this.emitEvent("event.done");
+    }
+
+    async emitErrorEvent(): Promise<void> {
+        await this.emitEvent("event.error");
+    }
+
+    async goHome(): Promise<void> {
+        await this.emitEvent("event.home");
+    }
+
+    async emergencyStop(): Promise<void> {
+        await this.emitEvent("event.emergencyStop");
+    }
+
+    async emitUpdateUnavailableEvent(): Promise<void> {
+        await this.emitEvent("event.updateUnavailable");
+    }
+    // #endregion
+
     /**
      * Set the OSSM LED indicator to a specific color
      * @param r The red component of the color (0-255)
@@ -328,6 +363,7 @@ export class OssmBleClient extends RadBleApi {
      * @note The firmware seems to reset this value after a couple hundred milliseconds
      */
     async setLed(r: number, g: number, b: number): Promise<void> {
+        this.requireLease();
         // Range validation will be left to the firmware
         await this.send({ op: "indicator.set", path: "indicator.status", args: { r, g, b } }, this.lease!);
     }
