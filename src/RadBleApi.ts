@@ -138,15 +138,25 @@ export class RadBleApi extends BleConnectionHandler {
         const id = this.#nextId++;
         const request: RadSchema.RadRequest = { v: 1, id, ...req };
 
+        let payload: () => BufferSource;
+        /* If a lease is specified and it is a typeof RadLease then don't stringify the request until it is made
+         * We should wait because if we stringify too early we may encode an expired token
+         * The downside to this is it means if the JSON fails to encode then we won't catch it as early
+         * (This isn't strictly needed since the token doesn't change between renewals, but I will leave it here as future proofing)
+         * 
+         * If the lease isn't specified or it is a plain number then encode it before queuing the ble action
+         * We do this because it saves cycles inside the queue
+         */
         if (lease instanceof RadLease) {
             if (lease.isExpired)
                 throw new DOMException("Cannot send RAD request with expired lease", "InvalidStateError");
             request.lease = lease.token!;
-        } else if (typeof lease === "number") {
+            payload = () => this.#enc.encode(JSON.stringify(request));
+        } else {
             request.lease = lease;
+            const payloadBuf = this.#enc.encode(JSON.stringify(request));
+            payload = () => payloadBuf;
         }
-
-        const payload = this.#enc.encode(JSON.stringify(request));
 
         const result = await new Promise<RadSchema.RadResponse<T>>((resolve, reject) => {
             const timer = window.setTimeout(() => {
@@ -160,7 +170,7 @@ export class RadBleApi extends BleConnectionHandler {
                 const requestChar = this.radService?.request;
                 if (!requestChar)
                     throw new DOMException("RAD request characteristic not available", "InvalidStateError");
-                await requestChar.writeValueWithoutResponse(payload);
+                await requestChar.writeValueWithoutResponse(payload());
             }).catch(err => {
                 window.clearTimeout(timer);
                 this.#pending.delete(id);
