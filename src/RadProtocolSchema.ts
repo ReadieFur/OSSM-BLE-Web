@@ -167,7 +167,7 @@ export interface RadSensorReadManyEntry<T = unknown> {
 export interface RadStreamResult {
     streamId: number;
     path: string;
-    surface: string;
+    surface: RadSurface;
     rateHz: number;
     batchSize: 1;
     encoding: 'json-v1';
@@ -218,4 +218,23 @@ export interface RadSetDeviceNameResult {
     custom: boolean;
     changed: boolean;
     maxBytes: number;
+}
+
+// https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.h#19
+export enum RadSurface {
+    State = "state",
+    Essential = "essential",
+    Button = "button",
+    Encoder = "encoder",
+    Imu = "imu",
+    Power = "power",
+    Analog = "analog",
+    Magnetic = "magnetic",
+    Motion = "motion",
+    Connectivity = "connectivity",
+    Indicator = "indicator",
+    Haptic = "haptic",
+    Audio = "audio",
+    Display = "display",
+    Count = "count"
 }

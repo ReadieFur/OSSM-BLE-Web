@@ -3,6 +3,7 @@ import { AutoLease, RadLease, SimpleLease } from "./RadLease";
 import * as Schema from "./RadProtocolSchema";
 import crc32 from "crc-32";
 import { SingleEvent, SingleEventSource } from "./SingleEvent";
+import { AsyncFunctionQueue } from "./AsyncFunctionQueue";
 
 // #region Rad ble api metadata
 // Pulled from https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json
@@ -64,15 +65,22 @@ type RadNotifiableCharacteristicKey = {
         never;
 }[RawSpecKey];
 
-type GattValue = DataView | undefined;
-
 type RadTelemetryObjType<OWNED extends boolean = false> = {
     [K in RadNotifiableCharacteristicKey]:
         OWNED extends true ? SingleEventSource<[GattValue]> : SingleEvent<[GattValue]>
 };
 // #endregion
 
-const defaultRadRequestTimeoutMs = 6000;
+type GattValue = DataView | undefined;
+
+interface ResolveReject<T = void> {
+    resolve: (v: T) => void;
+    reject: (e: Error) => void;
+}
+
+interface ResolveRejectTimer<T = void> extends ResolveReject<T> {
+    timer: number;
+}
 
 /**
  * Generic RAD BLE API handler. Handles the RAD protocol over BLE, and it's common calls
@@ -82,20 +90,38 @@ export class RadBleApi extends BleConnectionHandler {
     readonly #radServiceUuid: Readonly<string>;
     #radCharacteristics: RadCharacteristicGatts = {} as RadCharacteristicGatts;
     #radCharacteristicGattMap: Map<BluetoothRemoteGATTCharacteristic, RadCharacteristicKey> = new Map();
-    #nextId = 1;
-    #pending = new Map<number, {
-        resolve: (v: Schema.RadResponse) => void;
-        reject: (e: Error) => void;
-        timer: number;
-    }>();
+    /** A map of all the requests that are currently being processed */
+    #requests = {
+        nextId: 1,
+        pending: new Map<number, ResolveRejectTimer<Schema.RadResponse>>()
+    }
+    // #nextRequestId = 1;
+    // #pendingRequests = new Map<number, ResolveRejectTimer<Schema.RadResponse>>();
+    #activeStream: Schema.RadStreamResult | null = null;
+    #pendingSnapshots = {
+        /** Holds the stream that the snapshot manager is currently waiting on */
+        activeStream: null as { id: number; surface: string; } | null,
+        /** Keeps track of pending snapshot requests */
+        pendingSurfaces: new Map<string, Set<ResolveRejectTimer<unknown>>>(),
+        /** Keeps track of the function that will activate a stream for a given surface */
+        streamActivators: new Map<string, {
+            expiresAt: number,
+            promise: ResolveReject,
+            signature: Function
+        }>(),
+        /** Processes snapshot requests in order of surface request */
+        streamActivatorQueue: new AsyncFunctionQueue()
+    };
 
     protected readonly _enc = new TextEncoder();
     protected readonly _dec = new TextDecoder();
+    protected _defaultTimeoutMs = 6000;
     protected get _radService(): RadCharacteristicGatts { return this.#radCharacteristics; }
     protected readonly _onRadTelemetry: Readonly<RadTelemetryObjType<true>>;
 
     lease: RadLease | null = null;
     get onRadTelemetry(): Readonly<RadTelemetryObjType<false>> { return this._onRadTelemetry; }
+    get activeStream(): Schema.RadStreamResult | null { return this.activeStream; }
     
     // #region BLE lifecycle
     constructor(serviceUuid: string, device: BluetoothDevice) {
@@ -173,7 +199,7 @@ export class RadBleApi extends BleConnectionHandler {
 
         // Validate protocol
         const info = this.#parseValueAsJson<Schema.RadProtocolInfo>(
-            await this.enqueueBleTask(() => this._radService.protocolInfo!.readValue()));
+            await this._taskQueue.enqueue(() => this._radService.protocolInfo!.readValue()));
         if (!info || info?.protocol !== "rad-ble" || info?.version !== 1)
             throw new DOMException(`Unexpected protocol info: ${JSON.stringify(info)}`, "NotSupportedError");
     }
@@ -201,15 +227,17 @@ export class RadBleApi extends BleConnectionHandler {
      * Sends a RAD request to the device and waits for a response
      * @param req The request object to send. Must satisfy {@link RadRequest}
      * @param lease Optional lease to include in the request. If the request requires a lease, this must be provided otherwise the request will fail. Use {@link acquireLease} to obtain a lease.
-     * @param timeoutMs Optional timeout in milliseconds to wait for a response before rejecting. Defaults to {@link defaultRadRequestTimeoutMs}
+     * @param timeoutMs Optional timeout in milliseconds to wait for a response before rejecting. Defaults to {@link _defaultTimeoutMs}
      * @returns A promise that resolves to {@link RadResponse} containing the response data
      */
     async send<T = unknown>(
         req: Omit<Schema.RadRequest, "v" | "id" | "lease">,
         lease?: number | RadLease,
-        timeoutMs: number = defaultRadRequestTimeoutMs
+        timeoutMs?: number
     ): Promise<Schema.RadResponse<T>> {
-        const id = this.#nextId++;
+        if (!timeoutMs) timeoutMs = this._defaultTimeoutMs;
+
+        const id = this.#requests.nextId++;
         const request: Schema.RadRequest = { v: 1, id, ...req };
 
         let payload: () => BufferSource;
@@ -232,22 +260,26 @@ export class RadBleApi extends BleConnectionHandler {
             payload = () => payloadBuf;
         }
 
+        // Request gets resolved inside #onRequest
         const result = await new Promise<Schema.RadResponse<T>>((resolve, reject) => {
             const timer = window.setTimeout(() => {
-                this.#pending.delete(id);
+                this.#requests.pending.delete(id);
                 reject(new DOMException(`RAD request timeout (id=${id}, op=${req.op})`, "TimeoutError"));
             }, timeoutMs);
 
-            this.#pending.set(id, { resolve: resolve as any, reject, timer });
+            this.#requests.pending.set(id, { resolve: resolve as any, reject, timer });
 
-            this.enqueueBleTask(async () => {
-                const requestChar = this._radService.request;
-                if (!requestChar)
-                    throw new DOMException("RAD request characteristic not available", "InvalidStateError");
-                await requestChar.writeValueWithoutResponse(payload());
-            }).catch(err => {
+            this._taskQueue.enqueue(async () => {
+                // Check that the request hasn't been aborted
+                if (!this.#requests.pending.has(id)) return;
+
+                // Ensure the state is valid to make the ble call
+                this._requireRadCharacteristic("request");
+                await this._radService.request!.writeValueWithoutResponse(payload());
+
+            }, timeoutMs).catch(err => {
                 window.clearTimeout(timer);
-                this.#pending.delete(id);
+                this.#requests.pending.delete(id);
                 reject(err);
             });
         });
@@ -282,25 +314,32 @@ export class RadBleApi extends BleConnectionHandler {
         const key = this.#radCharacteristicGattMap.get(target);
         if (!key) return;
 
+        let handled = false;
         switch (key) {
             case "response":
-                this.#onResponse(target.value);
+                handled = this.#onResponse(target.value);
+                break;
+            case "sensorStream":
+                handled = this.#onStream(target.value)
                 break;
             default:
                 /* Certain snapshots are sent out periodically, but I think they are mostly left down to the abstract implementation
                 * So I won't write blocks for all of them in here
                 * https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L820
                 */
-                // 'key' should always be 'RadNotifiableCharacteristicKey' here
-                this._onRadTelemetry[key as RadNotifiableCharacteristicKey].dispatch(target.value);
                 break;
+        }
+
+        if (!handled) {
+            // 'key' should always be 'RadNotifiableCharacteristicKey' here
+            this._onRadTelemetry[key as RadNotifiableCharacteristicKey].dispatch(target.value);
         }
     }
 
     /**
      * Handles incoming RAD responses from the device and either rejects or resolves pending requests
      */
-    #onResponse(value: GattValue): void {
+    #onResponse(dataView: GattValue): boolean {
         /* I bless Copilot for helping my find the core of how this RAD API works (namely around the request/response handling)
         * There are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
         * https://github.com/researchanddesire/rad-ble/blob/main/src/RadBleProtocol.generated.h
@@ -308,28 +347,81 @@ export class RadBleApi extends BleConnectionHandler {
         * or a lot of them point to the same method handler inside the firmware (so we can just reuse request/response)
         */
 
-        if (!value) return;
-        const msg = this.#parseValueAsJson<Schema.RadResponse>(value);
+        if (!dataView) return false;
+        let msg: Schema.RadResponse;
+        try { msg = this.#parseValueAsJson<Schema.RadResponse>(dataView); }
+        catch { return false; }
         this._debugLog("RAD response received:", msg);
-        if (!msg || !this.#pending.has(msg.id)) return;
+        if (!this.#requests.pending.has(msg.id)) return false;
 
-        const p = this.#pending.get(msg.id)!;
-        if (!p) return;
+        const p = this.#requests.pending.get(msg.id)!;
+        if (!p) return false;
 
         // RAD can emit accepted + completed; only resolve on terminal stages
-        if (msg.stage === "failed") {
-            window.clearTimeout(p.timer);
-            this.#pending.delete(msg.id);
-            p.reject(new DOMException(`RAD request failed (id=${msg.id}, op=${msg.stage}): ${msg.code ?? "unknown"} - ${msg.message ?? "no message"}`, "Error"));
-            return;
+        switch (msg.stage) {
+            case "failed": {
+                window.clearTimeout(p.timer);
+                this.#requests.pending.delete(msg.id);
+                p.reject(new DOMException(`RAD request failed (id=${msg.id}, op=${msg.stage}): ${msg.code ?? "unknown"} - ${msg.message ?? "no message"}`, "Error"));
+                return true;
+            }
+            case "completed": {
+                window.clearTimeout(p.timer);
+                this.#requests.pending.delete(msg.id);
+                p.resolve(msg);
+                return true;
+            }
+            default: break;
         }
 
-        if (msg.stage === "completed") {
-            window.clearTimeout(p.timer);
-            this.#pending.delete(msg.id);
-            p.resolve(msg);
-            return;
+        return false;
+    }
+
+    #onStream(dataView: GattValue): boolean {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1938
+        const STREAM_HEADER_BYTES = 20;
+
+        if (!dataView || dataView.byteLength <= STREAM_HEADER_BYTES) return false;
+
+        const streamId = dataView.getUint8(1);
+        // If no stream is active or the frame doesn't match our active stream ID, ignore
+        if (!this.#pendingSnapshots || this.#pendingSnapshots.activeStream?.id !== streamId) return false;
+
+        const surface = this.#pendingSnapshots.activeStream.surface;
+        const pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
+        if (!pendingSet || pendingSet.size === 0) return false;
+
+        // Extract all handlers and immediately clean up state so other pending requests can continue
+        const handlers = Array.from(pendingSet);
+        this.#pendingSnapshots.pendingSurfaces.delete(surface);
+        // Resolve the activator so it can process the next item in the queue
+        this.#pendingSnapshots.streamActivators.get(surface)?.promise.resolve();
+
+        // Parse the value
+        let value: unknown;
+        try {
+            value = this.#parseValueAsJson(new Uint8Array(
+                // Get payload value part
+                dataView.buffer,
+                dataView.byteOffset + STREAM_HEADER_BYTES,
+                dataView.byteLength - STREAM_HEADER_BYTES
+            ));
         }
+        catch (err) {
+            for (const handler of handlers) {
+                window.clearTimeout(handler.timer);
+                handler.reject(err as Error);
+            }
+            return false;
+        }
+
+        // Resolve pending targets with the value
+        for (const handler of handlers) {
+            window.clearTimeout(handler.timer);
+            handler.resolve(value);
+        }
+
+        return true;
     }
     // #endregion
 
@@ -437,16 +529,21 @@ export class RadBleApi extends BleConnectionHandler {
      * @param rateHz Rate in Hz to stream at. If omitted, the device will use its default rate for the stream
      * @requires A valid lease token
      */
-    async startStream(path: string, rateHz?: number): Promise<Schema.RadStreamResult> {
+    async startStream(path: string, rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult> {
         this._requireLease();
+        
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1569
-        return this.sendWithResult<Schema.RadStreamResult>({
+        const result = await this.sendWithResult<Schema.RadStreamResult>({
             op: "stream.start",
             path,
             args: {
                 rateHz
             }
-        }, this.lease!);
+        }, this.lease!, timeoutMs);
+
+        this.#activeStream = result;
+
+        return result;
     }
 
     /**
@@ -456,25 +553,173 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns A promise resolving to the updated stream result
      * @requires A valid lease token
      */
-    async updateStream(path?: string, rateHz?: number): Promise<Schema.RadStreamResult> {
+    async updateStream(path?: string, rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult> {
         this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1550
-        return this.sendWithResult<Schema.RadStreamResult>({
+        const result = await this.sendWithResult<Schema.RadStreamResult>({
             op: "stream.update",
             path,
             args: {
                 rateHz
             }
-        }, this.lease!);
+        }, this.lease!, timeoutMs);
+        this.#activeStream = result;
+        return result;
     }
 
     /**
      * @requires A valid lease token
      */
-    async stopStream(): Promise<void> {
+    async stopStream(timeoutMs?: number): Promise<void> {
         this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1542
-        await this.send({ op: "stream.stop" }, this.lease!);
+        await this.send({ op: "stream.stop" }, this.lease!, timeoutMs);
+        this.#activeStream = null;
+    }
+
+    /**
+     * Gets a snapshot for a given surface (via path)
+     * @param path The property path that is streamable
+     * @returns A snapshot of the surface that the property belongs to
+     */
+    async getSnapshot<T>(path: string, timeoutMs?: number): Promise<T> {
+        if (!timeoutMs) timeoutMs = this._defaultTimeoutMs;
+        const [surface] = path.split(".", 2);
+
+        this._requireLease();
+
+        /**
+         * This function works in a three part process:
+         * 1. A promise returned to the caller that waits on a snapshot to be received
+         * 2. An internal asynchronous command queue to start and stop streams on the remote device that sends data to #onStream
+         * 3. #onStream that resolves the promise returned to the caller, this is fired on an incoming stream notification
+         */
+
+        // #region (Part 1) Outward facing promise
+        // Setup the 'user-facing' promise that we will return
+        /* Because this method relies on intercepting stream data and it cleans up the stream instance once data is received, we cannot allow other external streams to run at the same time
+         * TODO: Resume the external stream if one was active
+         */
+        if (this.#activeStream && !this.#pendingSnapshots.activeStream)
+            throw new DOMException("getSnapshot cannot be called while an external stream is active", "NotSupportedError");
+
+        const snapshotPromise = new Promise<T>((resolve, reject) => {
+            const pendingSurfaceRequest: ResolveRejectTimer<T> = { resolve, reject, timer: Number.NaN }
+
+            pendingSurfaceRequest.timer = window.setTimeout(() => {
+                // If we time out waiting for a snapshot, remove self from the pending surfaces
+                this.#pendingSnapshots.pendingSurfaces.get(surface)?.delete(pendingSurfaceRequest as ResolveRejectTimer<unknown>);
+                reject(new DOMException("getSnapshot timed out", "TimeoutError"));
+            }, timeoutMs);
+
+            this.#pendingSnapshots.pendingSurfaces
+                .getOrInsert(surface, new Set<ResolveRejectTimer<unknown>>())
+                .add(pendingSurfaceRequest as ResolveRejectTimer<unknown>);
+        });
+        // #endregion
+
+        // #region (Part 2) Internal stream manager
+        // Setup the internal stream activator
+        // On activator fail, if the set activator doesn't match the signature of self, reject all responses
+        // On activator success, do nothing as the pendingSurfaces are handled by #onStream
+        // On activator finally, remove itself from streamActivators
+        const existingActivator = this.#pendingSnapshots.streamActivators.get(surface);
+        const expiresAt = Date.now() + timeoutMs;
+
+        /* If no activator exists for the surface if the existing activator will expire before this calls timeout
+         * Create a new stream activator
+         */
+        if (!existingActivator || existingActivator.expiresAt < expiresAt) {
+            // Setup the resolvers for the async calls (used to block the queue from continuing until timeout or onStream resolution)
+            let resolveActivatorQueueTask!: () => void;
+            let rejectActivatorQueueTask!: (err: Error) => void;
+            const activatorWaitForPromise = new Promise<void>((resolve, reject) => {
+                resolveActivatorQueueTask = resolve;
+                rejectActivatorQueueTask = reject;
+            });
+
+            const activatorTask = async () => {
+                // Don't activate a stream if nothing is waiting on it
+                const pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
+                if (!pendingSet || pendingSet.size == 0) return;
+
+                // If this task fails the queuedActivatorPromise.catch will handle cleanup
+                try {
+                    /* Set the stream rate to the max allowed for the fastest response (100hz)
+                     * See https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.h#1576
+                     */
+                    const streamInstance = await this.startStream(path, 100, expiresAt - Date.now());
+                    this.#pendingSnapshots.activeStream = { id: streamInstance.streamId, surface: surface };
+                    
+                    // Keep this function blocked until #onStream resolve it or it times out
+                    await activatorWaitForPromise;
+                } finally {
+                    // Clear the stored active stream when done
+                    this.#pendingSnapshots.activeStream = null;
+
+                    // Clean up activators when done
+                    const currentActivator = this.#pendingSnapshots.streamActivators.get(surface);
+                    if (currentActivator && currentActivator.signature === activatorTask)
+                        this.#pendingSnapshots.streamActivators.delete(surface);
+
+                    // End the stream that was started for this task (this is allowed to throw)
+                    try { await this.stopStream(); }
+                    catch (e) { console.warn("Failed to stop stream during snapshot cleanup", e); }
+                }
+            };
+
+            // Update the stored activator for this surface
+            this.#pendingSnapshots.streamActivators.set(surface, {
+                expiresAt,
+                signature: activatorTask,
+                promise: {
+                    resolve: resolveActivatorQueueTask,
+                    reject: rejectActivatorQueueTask
+                }
+            });
+
+            // (Re)place activator task in queue
+            let queuedActivatorPromise: Promise<void>;
+            if (existingActivator) {
+                const error = new DOMException("Replaced by newer snapshot activator with extended timeout", "AbortError");
+                existingActivator.promise.reject(error);
+                queuedActivatorPromise = this.#pendingSnapshots.streamActivatorQueue.replaceOrEnqueue(
+                    existingActivator.signature,
+                    activatorTask,
+                    error,
+                    timeoutMs
+                );
+            } else {
+                queuedActivatorPromise = this.#pendingSnapshots.streamActivatorQueue.enqueue(
+                    activatorTask,
+                    timeoutMs
+                );
+            }
+
+            queuedActivatorPromise.catch((err: Error) => {
+                /* If a signature was passed and it doesn't match the currently registered activator,
+                * it means a newer activator replaced this one—so do NOT delete the new activator state
+                */
+                const currentActivator = this.#pendingSnapshots.streamActivators.get(surface);
+                if (currentActivator && currentActivator.signature !== activatorTask)
+                    return;
+
+                const pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
+                if (pendingSet) {
+                    for (const handler of pendingSet) {
+                        window.clearTimeout(handler.timer);
+                        handler.reject(err);
+                    }
+                    this.#pendingSnapshots.pendingSurfaces.delete(surface);
+                }
+                this.#pendingSnapshots.streamActivators.delete(surface);
+            });
+        }
+        // #endregion
+
+        // (Part 3) -> See #onStream
+
+        return snapshotPromise;
     }
 
     /**
@@ -530,7 +775,7 @@ export class RadBleApi extends BleConnectionHandler {
                 const frameArray = new Uint8Array(frameBuffer);
                 frameArray.set(new Uint8Array(chunk), 14);
 
-                await this.enqueueBleTask(async () => {
+                await this._taskQueue.enqueue(async () => {
                     this._requireRadCharacteristic("otaData");
                     await this._radService.otaData!.writeValueWithoutResponse(frameArray);
                 });
@@ -679,7 +924,7 @@ export class RadBleApi extends BleConnectionHandler {
     // #endregion
 
     // #region Helpers
-    #parseValueAsJson<T = unknown>(value: DataView): T {
+    #parseValueAsJson<T = unknown>(value: AllowSharedBufferSource): T {
         const str = this._dec.decode(value);
         return JSON.parse(str) as T;
     }

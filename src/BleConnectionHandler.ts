@@ -1,4 +1,4 @@
-import { AsyncFunctionQueue } from "./AsyncQueue";
+import { AsyncFunctionQueue } from "./AsyncFunctionQueue";
 import { SingleEvent, SingleEventSource } from "./SingleEvent";
 
 export enum BleConnectionState {
@@ -180,10 +180,6 @@ export abstract class BleConnectionHandler implements Disposable {
             characteristics: characteristics as DiscoveredGattService<TDef>["characteristics"],
         };
     }
-
-    async enqueueBleTask<T>(fn: () => Promise<T>): Promise<T> { return this._taskQueue.enqueue(fn); }
-    async prependBleTask<T>(fn: () => Promise<T>): Promise<T> { return this._taskQueue.prepend(fn); }
-    clearBleTaskQueue(reason?: Error | string): void { this._taskQueue.clearQueue(reason); }
 
     protected _debugLog(...args: any[]): void {
         if (this.debug)
