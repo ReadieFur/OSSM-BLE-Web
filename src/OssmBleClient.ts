@@ -47,7 +47,7 @@ export class OssmBleClient extends RadBleApi {
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L239
 
     async getSpeed(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<Schema.OssmReadResult<number>>("motion.speed", timeoutMs)).value;
+        return (await this.readSetting<Schema.OssmReadResult<number>>("motion.speed", timeoutMs, true)).value;
     }
 
     async getStroke(timeoutMs?: number): Promise<number> {
@@ -150,7 +150,7 @@ export class OssmBleClient extends RadBleApi {
      * @returns The current position millimeters
      */
     async getPosition(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<Schema.OssmReadResult<number>>("motion.position", timeoutMs)).value;
+        return (await this.readSensor<Schema.OssmReadResult<number>>("motion.position", timeoutMs, true)).value;
     }
 
     async getMotorCurrentOffset(timeoutMs?: number): Promise<number> {
@@ -298,7 +298,7 @@ export class OssmBleClient extends RadBleApi {
 
     /** @param value The speed value between 0 and 100 */
     async setSpeed(value: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("motion.speed", { value }, timeoutMs);
+        await this.writeSetting("motion.speed", { value }, timeoutMs, true);
     }
 
     /** @param value The stroke length value between 0 and 100 */
@@ -325,17 +325,17 @@ export class OssmBleClient extends RadBleApi {
     // #region [input|event].emit
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L431
 
-    async #emitEvent(path: string, args?: Record<string, unknown>, timeoutMs?: number): Promise<void> {
+    async #emitEvent(path: string, args?: Record<string, unknown>, timeoutMs?: number, isPriority?: boolean): Promise<void> {
         this._requireLease();
-        await this.send({ op: "event.emit", path, args }, this.lease!, timeoutMs);
+        await this.send({ op: "event.emit", path, args }, this.lease!, timeoutMs, isPriority);
     }
 
     async emitButtonEvent(clickType: Schema.OssmButtonClickType, timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("button.enter", { event: clickType }, timeoutMs);
+        await this.#emitEvent("button.enter", { event: clickType }, timeoutMs, true);
     }
 
     async emitReturnToMenuEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.returnToMenu", undefined, timeoutMs);
+        await this.#emitEvent("event.returnToMenu", undefined, timeoutMs, true);
     }
 
     async emitDoneEvent(timeoutMs?: number): Promise<void> {
@@ -343,15 +343,15 @@ export class OssmBleClient extends RadBleApi {
     }
 
     async emitErrorEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.error", undefined, timeoutMs);
+        await this.#emitEvent("event.error", undefined, timeoutMs, true);
     }
 
     async emitGoHomeEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.home", undefined, timeoutMs);
+        await this.#emitEvent("event.home", undefined, timeoutMs, true);
     }
 
     async emitEmergencyStopEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.emergencyStop", undefined, timeoutMs);
+        await this.#emitEvent("event.emergencyStop", undefined, timeoutMs, true);
     }
 
     async emitUpdateUnavailableEvent(timeoutMs?: number): Promise<void> {
@@ -364,14 +364,14 @@ export class OssmBleClient extends RadBleApi {
 
     async navigateTo(menu: Schema.OssmMenu, timeoutMs?: number): Promise<void> {
         this._requireLease();
-        const result = await this.send<{ deferred?: true }>({ op: "target.set", path: `target.${menu}` }, this.lease!, timeoutMs);
+        const result = await this.send<{ deferred?: true }>({ op: "target.set", path: `target.${menu}` }, this.lease!, timeoutMs, true);
         // TODO: If the task is deferred figure out how to wait for it to complete
     }
 
     /** Runs the calibration task on the machine */
     async homeRail(timeoutMs?: number): Promise<void> {
         this._requireLease();
-        this.send({ op: "target.set", path: "target.home" }, this.lease!, timeoutMs);
+        this.send({ op: "target.set", path: "target.home" }, this.lease!, timeoutMs, true);
     }
 
     /**
@@ -400,7 +400,7 @@ export class OssmBleClient extends RadBleApi {
                 value: position,
                 durationMs
             }
-        }, this.lease!, timeoutMs);
+        }, this.lease!, timeoutMs, true);
     }
     // #endregion
 
