@@ -96,8 +96,6 @@ export class RadBleApi extends BleConnectionHandler {
         nextId: 1,
         pending: new Map<number, ResolveRejectTimer<Schema.RadResponse>>()
     }
-    // #nextRequestId = 1;
-    // #pendingRequests = new Map<number, ResolveRejectTimer<Schema.RadResponse>>();
     #activeStream: Schema.RadStreamResult | null = null;
     readonly #pendingSnapshots = {
         /** Holds the stream that the snapshot manager is currently waiting on */
@@ -111,7 +109,9 @@ export class RadBleApi extends BleConnectionHandler {
             signature: Function
         }>(),
         /** Processes snapshot requests in order of surface request */
-        streamActivatorQueue: new AsyncFunctionQueue()
+        streamActivatorQueue: new AsyncFunctionQueue(),
+        /** Stores handled stream ids that may send transient responses for a short while ) */
+        transientStreamIds: new Set<number>()
     };
 
     protected readonly _enc = new TextEncoder();
@@ -121,7 +121,7 @@ export class RadBleApi extends BleConnectionHandler {
 
     lease: RadLease | null = null;
     get onRadTelemetry(): Readonly<RadTelemetryObjType<false>> { return this._onRadTelemetry; }
-    get activeStream(): Schema.RadStreamResult | null { return this.activeStream; }
+    get activeStream(): Schema.RadStreamResult | null { return this.#activeStream; }
     get defaultTimeoutMs() { return this.#defaultTimeoutMs; }
     set defaultTimeoutMs(value: number) {
         if (value <= 0 || Number.isNaN(value))
@@ -332,7 +332,7 @@ export class RadBleApi extends BleConnectionHandler {
                 handled = this.#onResponse(target.value);
                 break;
             case "sensorStream":
-                handled = this.#onStream(target.value)
+                handled = this.#onStream(target.value);
                 break;
             default:
                 /* Certain snapshots are sent out periodically, but I think they are mostly left down to the abstract implementation
@@ -396,12 +396,24 @@ export class RadBleApi extends BleConnectionHandler {
         if (!dataView || dataView.byteLength <= STREAM_HEADER_BYTES) return false;
 
         const streamId = dataView.getUint8(1);
+
+        /* After a stream has been handled, due to the round-trip-time on stopping a stream/starting a new one
+         * old streams may (and in testing, will) send a few more results.
+         * To avoid leaking these streams out to the generic event dispatcher we will capture them here and silently discard them
+         */
+        if (this.#pendingSnapshots.transientStreamIds.has(streamId))
+            return true;
+
         // If no stream is active or the frame doesn't match our active stream ID, ignore
         if (!this.#pendingSnapshots || this.#pendingSnapshots.activeStream?.id !== streamId) return false;
 
         const surface = this.#pendingSnapshots.activeStream.surface;
         const pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
         if (!pendingSet || pendingSet.size === 0) return false;
+
+        // See comment above about handled/transient streams
+        this.#pendingSnapshots.transientStreamIds.add(streamId);
+        window.setTimeout(() => this.#pendingSnapshots.transientStreamIds.delete(streamId), 500);
 
         // Extract all handlers and immediately clean up state so other pending requests can continue
         const handlers = Array.from(pendingSet);
@@ -543,6 +555,9 @@ export class RadBleApi extends BleConnectionHandler {
      */
     async startStream(path: string, rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult> {
         this._requireLease();
+
+        if (this.activeStream)
+            throw new DOMException("An existing stream is already active, call stopStream first", "InvalidStateError");
         
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1569
         const result = await this.sendWithResult<Schema.RadStreamResult>({
@@ -567,6 +582,10 @@ export class RadBleApi extends BleConnectionHandler {
      */
     async updateStream(path?: string, rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult> {
         this._requireLease();
+
+        if (!this.activeStream)
+            throw new DOMException("No stream is active, call startStream first", "InvalidStateError");
+
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1550
         const result = await this.sendWithResult<Schema.RadStreamResult>({
             op: "stream.update",
@@ -574,8 +593,10 @@ export class RadBleApi extends BleConnectionHandler {
             args: {
                 rateHz
             }
-        }, this.lease!, timeoutMs);
+        }, this.lease!, timeoutMs); 
+        
         this.#activeStream = result;
+
         return result;
     }
 
@@ -659,28 +680,36 @@ export class RadBleApi extends BleConnectionHandler {
                 const pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
                 if (!pendingSet || pendingSet.size == 0) return;
 
+                let streamInstance: Schema.RadStreamResult | null = null;
+
                 // If this task fails the queuedActivatorPromise.catch will handle cleanup
                 try {
                     /* Set the stream rate to the max allowed for the fastest response (100hz)
                      * See https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.h#1576
                      */
-                    const streamInstance = await this.startStream(path, 100, expiresAt - Date.now());
+                    // Not using updateStream here since we want to generate a new ID for the request
+                    streamInstance = await this.startStream(path, 100, expiresAt - Date.now());
                     this.#pendingSnapshots.activeStream = { id: streamInstance.streamId, surface: surface };
                     
                     // Keep this function blocked until #onStream resolve it or it times out
                     await activatorWaitForPromise;
                 } finally {
-                    // Clear the stored active stream when done
-                    this.#pendingSnapshots.activeStream = null;
+                    /* End the stream that was started for this task (this is allowed to throw)
+                     * We have to dispose of it here since the firmware will reuse the existing stream ID
+                     * if a stream is active and a new stream.start is called.
+                     * This unfortunately means that there will be a bit more of a delay between calls
+                     */
+                    try { await this.stopStream(); }
+                    catch (e) { console.warn("Failed to stop stream during snapshot cleanup", e); }
+
+                    // Only clear activeStream tracking if it still belongs to this task instance
+                    if (this.#pendingSnapshots.activeStream?.id === streamInstance?.streamId)
+                        this.#pendingSnapshots.activeStream = null;
 
                     // Clean up activators when done
                     const currentActivator = this.#pendingSnapshots.streamActivators.get(surface);
                     if (currentActivator && currentActivator.signature === activatorTask)
                         this.#pendingSnapshots.streamActivators.delete(surface);
-
-                    // End the stream that was started for this task (this is allowed to throw)
-                    try { await this.stopStream(); }
-                    catch (e) { console.warn("Failed to stop stream during snapshot cleanup", e); }
                 }
             };
 
