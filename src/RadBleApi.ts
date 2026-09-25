@@ -454,25 +454,25 @@ export class RadBleApi extends BleConnectionHandler {
         return lease;
     }
 
-    async getDeviceCapabilities(): Promise<Schema.RadProtocolInfoCompact> {
+    async getDeviceCapabilities(timeoutMs?: number): Promise<Schema.RadProtocolInfoCompact> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L996
-        return this.sendWithResult<Schema.RadProtocolInfoCompact>({ op: "device.capabilities" });
+        return this.sendWithResult<Schema.RadProtocolInfoCompact>({ op: "device.capabilities" }, undefined, timeoutMs);
     }
 
-    async getOtaCapabilities(): Promise<Schema.RadOtaCapabilities> {
+    async getOtaCapabilities(timeoutMs?: number): Promise<Schema.RadOtaCapabilities> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1002
-        return this.sendWithResult<Schema.RadOtaCapabilities>({ op: "ota.capabilities" });
+        return this.sendWithResult<Schema.RadOtaCapabilities>({ op: "ota.capabilities" }, undefined, timeoutMs);
     }
 
     /**
      * Streams catalog entries from the device page by page, yielding entries individually
      * @throws DataError if the catalog response is malformed or missing data
      */
-    async *getCatalog(): AsyncGenerator<Schema.RadCatalogEntry, void, unknown> {
+    async *getCatalog(timeoutMsPerPage?: number): AsyncGenerator<Schema.RadCatalogEntry, void, unknown> {
         let page = 0;
         while (true) {
             // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1031
-            const res = await this.sendWithResult<Schema.RadCatalogPage>({ op: "catalog.read", args: { page } });
+            const res = await this.sendWithResult<Schema.RadCatalogPage>({ op: "catalog.read", args: { page } }, undefined, timeoutMsPerPage);
 
             // Yield each resource in the page
             yield* res.resources;
@@ -484,25 +484,25 @@ export class RadBleApi extends BleConnectionHandler {
         }
     }
 
-    async getStateSnapshot(): Promise<Schema.RadState> {
+    async getStateSnapshot(timeoutMs?: number): Promise<Schema.RadState> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1041
-        return this.sendWithResult<Schema.RadState>({ op: "state.read" });
+        return this.sendWithResult<Schema.RadState>({ op: "state.read" }, undefined, timeoutMs);
     }
 
-    async readSensor<T = unknown>(path: string): Promise<T> {
+    async readSensor<T = unknown>(path: string, timeoutMs?: number): Promise<T> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1052
-        return this.sendWithResult<T>({ op: "sensor.read", path });
+        return this.sendWithResult<T>({ op: "sensor.read", path }, undefined, timeoutMs);
     }
 
-    async getEssentialSnapshot(): Promise<unknown> {
+    async getEssentialSnapshot(timeoutMs?: number): Promise<unknown> {
         // Only essential.live is operated upon in the base RAD firmware, but that still calls out to the snapshot handler for an unknown compile time response, so for now I will leave this as T = unknown and let the caller handle the type
-        return this.readSensor<unknown>("essential.live");
+        return this.readSensor<unknown>("essential.live", timeoutMs);
     }
 
-    async getConnectivitySnapshot(): Promise<unknown> {
+    async getConnectivitySnapshot(timeoutMs?: number): Promise<unknown> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1061
         // This also calls out to a Surface:: and has no default handler, so return type is unknown here
-        return this.sendWithResult({ op: "wifi.status" });
+        return this.sendWithResult({ op: "wifi.status" }, undefined, timeoutMs);
     }
 
     /**
@@ -512,15 +512,15 @@ export class RadBleApi extends BleConnectionHandler {
      * Surfaces allowed: Indicator, Haptic, Audio, Display
      * See https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1495
      */
-    async readOutput<T = unknown>(path: string): Promise<T> {
+    async readOutput<T = unknown>(path: string, timeoutMs?: number): Promise<T> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1069
         // Calls a dynamic snapshot surface handler, type is unknown
-        return this.sendWithResult<T>({ op: "output.read", path });
+        return this.sendWithResult<T>({ op: "output.read", path }, undefined, timeoutMs);
     }
 
-    async readSensorMany<T = unknown>(paths: string[]): Promise<Schema.RadSensorReadManyEntry<T>[]> {
+    async readSensorMany<T = unknown>(paths: string[], timeoutMs?: number): Promise<Schema.RadSensorReadManyEntry<T>[]> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1095
-        return this.sendWithResult<Schema.RadSensorReadManyEntry<T>[]>({ op: "sensor.readMany", args: { paths } });
+        return this.sendWithResult<Schema.RadSensorReadManyEntry<T>[]>({ op: "sensor.readMany", args: { paths } }, undefined, timeoutMs);
     }
 
     /**
@@ -821,10 +821,10 @@ export class RadBleApi extends BleConnectionHandler {
      * Scans for available WiFi networks
      * @requires A valid lease token
      */
-    async wifiScan(): Promise<Schema.RadWiFiScanResult> {
+    async wifiScan(timeoutMs?: number): Promise<Schema.RadWiFiScanResult> {
         this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1606
-        const res = await this.sendWithResult<Partial<Schema.RadWiFiScanResult>>({ op: "wifi.scan" }, this.lease!);
+        const res = await this.sendWithResult<Partial<Schema.RadWiFiScanResult>>({ op: "wifi.scan" }, this.lease!, timeoutMs);
 
         /* This RAD command returns a success response even if a scan is already in progress.
          * The true success state is at the end of the original request where 'running' is false and the return result is ok
@@ -838,10 +838,10 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * @requires A valid lease token
      */
-    async wifiForget(): Promise<void> {
+    async wifiForget(timeoutMs?: number): Promise<void> {
         this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1705
-        await this.send({ op: "wifi.forget" }, this.lease!);
+        await this.send({ op: "wifi.forget" }, this.lease!, timeoutMs);
     }
 
     /**
@@ -851,10 +851,10 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns Void when the credentials have been saved and the device has requested to connect. This does not guarantee that the connection was successful, only that the device has accepted the request to connect. Use {@link getConnectivitySnapshot} to check the connection status.
      * @requires A valid lease token
      */
-    async wifiConfigure(ssid: string, password?: string): Promise<void> {
+    async wifiConfigure(ssid: string, password?: string, timeoutMs?: number): Promise<void> {
         this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1711
-        await this.send({ op: "wifi.configure", args: { ssid, password } }, this.lease!);
+        await this.send({ op: "wifi.configure", args: { ssid, password } }, this.lease!, timeoutMs);
     }
 
     /**
@@ -862,9 +862,9 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires a valid lease
      * @note This also discards this RAD API instance
      */
-    async restartSystem(): Promise<void> {
+    async restartSystem(timeoutMs?: number): Promise<void> {
         this._requireLease();
-        await this.send({ op: "system.restart" }, this.lease!);
+        await this.send({ op: "system.restart" }, this.lease!, timeoutMs);
         this.disconnect();
     }
 
@@ -874,10 +874,10 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns The value of the setting
      * @requires A valid lease token
      */
-    async readSetting<T = unknown>(path: string): Promise<T> {
+    async readSetting<T = unknown>(path: string, timeoutMs?: number): Promise<T> {
         this._requireLease();
         // Handled by abstract command handler, compile time type is unknown
-        return this.sendWithResult<T>({ op: "setting.read", path }, this.lease!);
+        return this.sendWithResult<T>({ op: "setting.read", path }, this.lease!, timeoutMs);
     }
 
     /**
@@ -887,14 +887,14 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns The value of the setting
      * @requires A valid lease token
      */
-    async writeSetting<T = unknown>(path: string, args: Record<string, unknown>): Promise<T> {
+    async writeSetting<T = unknown>(path: string, args: Record<string, unknown>, timeoutMs?: number): Promise<T> {
         this._requireLease();
         // Handled by abstract command handler, compile time type is unknown
         return this.sendWithResult<T>({
             op: "setting.write",
             path,
             args
-        }, this.lease!);
+        }, this.lease!, timeoutMs);
     }
 
     /**
@@ -902,25 +902,25 @@ export class RadBleApi extends BleConnectionHandler {
      * @param path The path to the setting to reset
      * @requires A valid lease token
      */
-    async resetSetting(path: string): Promise<void> {
+    async resetSetting(path: string, timeoutMs?: number): Promise<void> {
         this._requireLease();
         // Handled by abstract command handler, compile time type is unknown
-        await this.send({ op: "setting.reset", path }, this.lease!);
+        await this.send({ op: "setting.reset", path }, this.lease!, timeoutMs);
     }
 
-    async getDeviceName(): Promise<string> {
+    async getDeviceName(timeoutMs?: number): Promise<string> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1238
-        return this.readSetting<string>("device.name");
+        return this.readSetting<string>("device.name", timeoutMs);
     }
 
-    async setDeviceName(name: string): Promise<Schema.RadSetDeviceNameResult> {
+    async setDeviceName(name: string, timeoutMs?: number): Promise<Schema.RadSetDeviceNameResult> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L714
-        return this.writeSetting<Schema.RadSetDeviceNameResult>("device.name", { value: name });
+        return this.writeSetting<Schema.RadSetDeviceNameResult>("device.name", { value: name }, timeoutMs);
     }
 
-    async resetDeviceName(): Promise<void> {
+    async resetDeviceName(timeoutMs?: number): Promise<void> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1238
-        await this.resetSetting("device.name");
+        await this.resetSetting("device.name", timeoutMs);
     }
     // #endregion
 
