@@ -233,7 +233,8 @@ export class RadBleApi extends BleConnectionHandler {
     async send<T = unknown>(
         req: Omit<Schema.RadRequest, "v" | "id" | "lease">,
         lease?: number | RadLease,
-        timeoutMs?: number
+        timeoutMs?: number,
+        isPriority: boolean = false
     ): Promise<Schema.RadResponse<T>> {
         if (!timeoutMs) timeoutMs = this._defaultTimeoutMs;
 
@@ -269,7 +270,7 @@ export class RadBleApi extends BleConnectionHandler {
 
             this.#requests.pending.set(id, { resolve: resolve as any, reject, timer });
 
-            this._taskQueue.enqueue(async () => {
+            const func = async () => {
                 // Check that the request hasn't been aborted
                 if (!this.#requests.pending.has(id)) return;
 
@@ -277,7 +278,11 @@ export class RadBleApi extends BleConnectionHandler {
                 this._requireRadCharacteristic("request");
                 await this._radService.request!.writeValueWithoutResponse(payload());
 
-            }, timeoutMs).catch(err => {
+            };
+            const queuedItem = isPriority
+                ? this._taskQueue.prepend(func, timeoutMs)
+                : this._taskQueue.enqueue(func, timeoutMs);
+            queuedItem.catch(err => {
                 window.clearTimeout(timer);
                 this.#requests.pending.delete(id);
                 reject(err);

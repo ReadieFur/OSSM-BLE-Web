@@ -374,10 +374,16 @@ export class OssmBleClient extends RadBleApi {
         this.send({ op: "target.set", path: "target.home" }, this.lease!, timeoutMs);
     }
 
-    /** Emergency stops the device */
+    /**
+     * Emergency stops the device
+     * @note This aborts all other pending and processing API calls
+     */
     async emergencyStop(timeoutMs?: number): Promise<void> {
-        this._requireLease();
-        this.send({ op: "target.set", path: "target.emergencyStop" }, this.lease!, timeoutMs);
+        this._requireLease(); // I find it kinda stupid how this command requires a lease lol
+        // Clear the queue for this call since it is a safety function and we shouldn't wait on other tasks to complete, even if we prepend this task to the queue
+        this._taskQueue.clearQueue();
+        // Set the isPriority parameter to true to guarantee that this function is called next
+        this.send({ op: "target.set", path: "target.emergencyStop" }, this.lease!, timeoutMs, true);
     }
 
     /**
