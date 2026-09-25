@@ -625,9 +625,12 @@ export class RadBleApi extends BleConnectionHandler {
                 reject(new DOMException("getSnapshot timed out", "TimeoutError"));
             }, timeoutMs);
 
-            this.#pendingSnapshots.pendingSurfaces
-                .getOrInsert(surface, new Set<ResolveRejectTimer<unknown>>())
-                .add(pendingSurfaceRequest as ResolveRejectTimer<unknown>);
+            let pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
+            if (!pendingSet) {
+                pendingSet = new Set<ResolveRejectTimer<unknown>>();
+                this.#pendingSnapshots.pendingSurfaces.set(surface, pendingSet);
+            }
+            pendingSet.add(pendingSurfaceRequest as ResolveRejectTimer<unknown>);
         });
         // #endregion
 
