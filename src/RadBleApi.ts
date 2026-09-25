@@ -67,11 +67,13 @@ type RadNotifiableCharacteristicKey = {
 
 type RadTelemetryObjType<OWNED extends boolean = false> = {
     [K in RadNotifiableCharacteristicKey]:
-        OWNED extends true ? SingleEventSource<[GattValue]> : SingleEvent<[GattValue]>
+        OWNED extends true ? SingleEventSource<[RadTelemetry]> : SingleEvent<[RadTelemetry]>
 };
 // #endregion
 
 type GattValue = DataView | undefined;
+
+export type RadTelemetry = Schema.RadResponse | Schema.RadStream | GattValue;
 
 interface ResolveReject<T = void> {
     resolve: (v: T) => void;
@@ -141,7 +143,7 @@ export class RadBleApi extends BleConnectionHandler {
         const notifier = {} as RadTelemetryObjType<true>;
         for (const [rawKey, spec] of Object.entries(RAD_CHARACTERISTICS_SPEC))
             if (spec.properties.some(p => p === "notify" || p === "indicate"))
-                notifier[this.#snakeCaseToCamelCase(rawKey) as RadNotifiableCharacteristicKey] = new SingleEventSource<[GattValue]>();
+                notifier[this.#snakeCaseToCamelCase(rawKey) as RadNotifiableCharacteristicKey] = new SingleEventSource<[RadTelemetry]>();
         this._onRadTelemetry = notifier;
     }
 
@@ -352,17 +354,31 @@ export class RadBleApi extends BleConnectionHandler {
     #handleIncomingTelemetry(event: Event) {
         if (!event.target) return;
         const target = event.target as BluetoothRemoteGATTCharacteristic
+
         const key = this.#radCharacteristicGattMap.get(target);
         if (!key) return;
 
+        let value: RadTelemetry = target.value;
         let handled = false;
         switch (key) {
-            case "response":
-                handled = this.#onResponse(target.value);
+            case "response": {
+                if (!value) return;
+
+                try { value = this.#parseValueAsJson<Schema.RadResponse>(value); }
+                catch { return; }
+
+                handled = this.#onResponse(value);
                 break;
-            case "sensorStream":
-                handled = this.#onStream(target.value);
+            }
+            case "sensorStream": {
+                if (!value) return;
+
+                try { value = this.decodeStream(value); }
+                catch { return; }
+
+                handled = this.#onStream(value);
                 break;
+            }
             default:
                 /* Certain snapshots are sent out periodically, but I think they are mostly left down to the abstract implementation
                 * So I won't write blocks for all of them in here
@@ -380,7 +396,7 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * Handles incoming RAD responses from the device and either rejects or resolves pending requests
      */
-    #onResponse(dataView: GattValue): boolean {
+    #onResponse(msg: Schema.RadResponse): boolean {
         /* I bless Copilot for helping my find the core of how this RAD API works (namely around the request/response handling)
         * There are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
         * https://github.com/researchanddesire/rad-ble/blob/main/src/RadBleProtocol.generated.h
@@ -388,10 +404,6 @@ export class RadBleApi extends BleConnectionHandler {
         * or a lot of them point to the same method handler inside the firmware (so we can just reuse request/response)
         */
 
-        if (!dataView) return false;
-        let msg: Schema.RadResponse;
-        try { msg = this.#parseValueAsJson<Schema.RadResponse>(dataView); }
-        catch { return false; }
         this._debugLog("RAD response received:", msg);
         if (!this.#requests.pending.has(msg.id)) return false;
 
@@ -418,31 +430,24 @@ export class RadBleApi extends BleConnectionHandler {
         return false;
     }
 
-    #onStream(dataView: GattValue): boolean {
-        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1938
-        const STREAM_HEADER_BYTES = 20;
-
-        if (!dataView || dataView.byteLength <= STREAM_HEADER_BYTES) return false;
-
-        const streamId = dataView.getUint8(1);
-
+    #onStream(streamData: Schema.RadStream): boolean {
         /* After a stream has been handled, due to the round-trip-time on stopping a stream/starting a new one
          * old streams may (and in testing, will) send a few more results.
          * To avoid leaking these streams out to the generic event dispatcher we will capture them here and silently discard them
          */
-        if (this.#pendingSnapshots.transientStreamIds.has(streamId))
+        if (this.#pendingSnapshots.transientStreamIds.has(streamData.streamId))
             return true;
 
         // If no stream is active or the frame doesn't match our active stream ID, ignore
-        if (!this.#pendingSnapshots || this.#pendingSnapshots.activeStream?.id !== streamId) return false;
+        if (!this.#pendingSnapshots || this.#pendingSnapshots.activeStream?.id !== streamData.streamId) return false;
 
         const surface = this.#pendingSnapshots.activeStream.surface;
         const pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
         if (!pendingSet || pendingSet.size === 0) return false;
 
         // See comment above about handled/transient streams
-        this.#pendingSnapshots.transientStreamIds.add(streamId);
-        window.setTimeout(() => this.#pendingSnapshots.transientStreamIds.delete(streamId), 500);
+        this.#pendingSnapshots.transientStreamIds.add(streamData.streamId);
+        window.setTimeout(() => this.#pendingSnapshots.transientStreamIds.delete(streamData.streamId), 500);
 
         // Extract all handlers and immediately clean up state so other pending requests can continue
         const handlers = Array.from(pendingSet);
@@ -450,28 +455,10 @@ export class RadBleApi extends BleConnectionHandler {
         // Resolve the activator so it can process the next item in the queue
         this.#pendingSnapshots.streamActivators.get(surface)?.promise.resolve();
 
-        // Parse the value
-        let value: unknown;
-        try {
-            value = this.#parseValueAsJson(new Uint8Array(
-                // Get payload value part
-                dataView.buffer,
-                dataView.byteOffset + STREAM_HEADER_BYTES,
-                dataView.byteLength - STREAM_HEADER_BYTES
-            ));
-        }
-        catch (err) {
-            for (const handler of handlers) {
-                window.clearTimeout(handler.timer);
-                handler.reject(err as Error);
-            }
-            return false;
-        }
-
         // Resolve pending targets with the value
         for (const handler of handlers) {
             window.clearTimeout(handler.timer);
-            handler.resolve(value);
+            handler.resolve(streamData.data);
         }
 
         return true;
@@ -713,11 +700,13 @@ export class RadBleApi extends BleConnectionHandler {
 
                 // If this task fails the queuedActivatorPromise.catch will handle cleanup
                 try {
-                    /* Set the stream rate to the max allowed for the fastest response (100hz)
+                    /* Set the stream rate to a high value for a quicker response
+                     * 100hz is the fastest allowed, 10 is the default
+                     * A very high value risks overloading the remote device and subsequently dropping frames
                      * See https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.h#1576
                      */
                     // Not using updateStream here since we want to generate a new ID for the request
-                    streamInstance = await this.startStream(path, 100, expiresAt - Date.now());
+                    streamInstance = await this.startStream(path, 50, expiresAt - Date.now());
                     this.#pendingSnapshots.activeStream = { id: streamInstance.streamId, surface: surface };
                     
                     // Keep this function blocked until #onStream resolve it or it times out
@@ -1022,6 +1011,39 @@ export class RadBleApi extends BleConnectionHandler {
 
     #snakeCaseToCamelCase(str: string): string {
         return str.toLowerCase().replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
+    }
+
+    decodeStream<T>(dataView: DataView): Schema.RadStream<T> {
+        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1938
+
+        const STREAM_HEADER_BYTES = 20;
+
+        if (dataView.byteLength <= STREAM_HEADER_BYTES)
+            throw new DOMException("Stream data too short", "DataError");
+
+        const payloadBytes = new Uint8Array(
+            dataView.buffer,
+            dataView.byteOffset + STREAM_HEADER_BYTES,
+            dataView.byteLength - STREAM_HEADER_BYTES
+        );
+
+        let data: T = payloadBytes as T;
+
+        const flags = dataView.getUint16(2, true);
+        if ((flags & Schema.RadStreamFlags.Utf8Json) !== 0)
+            data = this.#parseValueAsJson(payloadBytes);
+
+        return {
+            protocolVersion: dataView.getUint8(0),
+            streamId: dataView.getUint8(1),
+            flags,
+            format: dataView.getUint16(4, true),
+            payloadLength: dataView.getUint16(6, true),
+            sequence: dataView.getUint32(8, true),
+            timestampMs: dataView.getUint32(12, true),
+            droppedCount: dataView.getUint32(16, true),
+            data
+        };
     }
     // #endregion
 }

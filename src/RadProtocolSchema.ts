@@ -238,3 +238,20 @@ export enum RadSurface {
     Display = "display",
     Count = "count"
 }
+
+export enum RadStreamFlags {
+    None = 0,
+    Utf8Json = 1 << 0, // Bit 0: UTF-8 JSON payload
+}
+
+export interface RadStream<T = unknown> {
+    protocolVersion: number;
+    streamId: number;
+    flags: RadStreamFlags;
+    format: number;
+    payloadLength: number;
+    sequence: number;
+    timestampMs: number;
+    droppedCount: number;
+    data: T;
+}
