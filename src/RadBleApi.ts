@@ -225,6 +225,35 @@ export class RadBleApi extends BleConnectionHandler {
     protected override async _onDisconnected(wasConnected: boolean): Promise<void> {
         this.#radCharacteristics = {} as RadCharacteristicGatts;
         this.#radCharacteristicGattMap.clear();
+
+        this.#activeStream = null;
+        this.#pendingSnapshots.activeStream = null;
+
+        // If we are auto-reconnecting we shouldn't discard pending requests since they may still be resolved if we reconnect in time
+        if (this.autoReconnect)
+            return;
+
+        const disconnectError = new DOMException("Device disconnected", "NetworkError");
+
+        for (const request of this.#requests.pending.values()) {
+            if (!Number.isNaN(request.timer))
+                window.clearTimeout(request.timer);
+            request.reject(disconnectError);
+        }
+        this.#requests.pending.clear();
+
+        for (const pendingSet of this.#pendingSnapshots.pendingSurfaces.values()) {
+            for (const handler of pendingSet) {
+                if (!Number.isNaN(handler.timer))
+                    window.clearTimeout(handler.timer);
+                handler.reject(disconnectError);
+            }
+        }
+        this.#pendingSnapshots.pendingSurfaces.clear();
+
+        for (const activator of this.#pendingSnapshots.streamActivators.values())
+            activator.promise.reject(disconnectError);
+        this.#pendingSnapshots.streamActivators.clear();
     }
     // #endregion
 
