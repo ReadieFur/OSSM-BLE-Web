@@ -247,6 +247,7 @@ export enum RadStreamFlags {
 export interface RadStream<T = unknown> {
     protocolVersion: number;
     streamId: number;
+    surface?: RadSurface;
     flags: RadStreamFlags;
     format: number;
     payloadLength: number;

@@ -373,7 +373,41 @@ export class RadBleApi extends BleConnectionHandler {
             case "sensorStream": {
                 if (!value) return;
 
-                try { value = this.decodeStream(value); }
+                // Decode the stream data
+                try {
+                    // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1938
+                    const STREAM_HEADER_BYTES = 20;
+
+                    if (value.byteLength <= STREAM_HEADER_BYTES)
+                        throw new DOMException("Stream data too short", "DataError");
+
+                    const streamId = value.getUint8(1);
+
+                    const payloadBytes = new Uint8Array(
+                        value.buffer,
+                        value.byteOffset + STREAM_HEADER_BYTES,
+                        value.byteLength - STREAM_HEADER_BYTES
+                    );
+
+                    let data = payloadBytes;
+
+                    const flags = value.getUint16(2, true);
+                    if ((flags & Schema.RadStreamFlags.Utf8Json) !== 0)
+                        data = this.#parseValueAsJson(payloadBytes);
+
+                    value = {
+                        protocolVersion: value.getUint8(0),
+                        streamId,
+                        surface: streamId === this.activeStream?.streamId ? this.activeStream.surface : undefined,
+                        flags,
+                        format: value.getUint16(4, true),
+                        payloadLength: value.getUint16(6, true),
+                        sequence: value.getUint32(8, true),
+                        timestampMs: value.getUint32(12, true),
+                        droppedCount: value.getUint32(16, true),
+                        data
+                    };
+                }
                 catch { return; }
 
                 handled = this.#onStream(value);
@@ -589,6 +623,7 @@ export class RadBleApi extends BleConnectionHandler {
         return result;
     }
 
+    async updateStream(rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult>;
     /**
      * Updates the current stream configuration
      * @param path Path to stream, if any. If omitted, the current stream path is used
@@ -596,11 +631,33 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns A promise resolving to the updated stream result
      * @requires A valid lease token
      */
-    async updateStream(path?: string, rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult> {
+    async updateStream(path?: string, rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult>;
+    /** @deprecated Use one of the overload methods instead */
+    async updateStream(
+        pathOrRateHz?: string | number,
+        rateHzOrTimeoutMs?: number,
+        timeoutMs?: number
+    ): Promise<Schema.RadStreamResult> {
         this._requireLease();
 
         if (!this.activeStream)
             throw new DOMException("No stream is active, call startStream first", "InvalidStateError");
+
+        let path: string | undefined;
+        let rateHz: number | undefined;
+        let timeout: number | undefined;
+
+        if (typeof pathOrRateHz === "number") {
+            // Called as updateStream(rateHz, timeoutMs)
+            path = undefined;
+            rateHz = pathOrRateHz;
+            timeout = rateHzOrTimeoutMs;
+        } else {
+            // Called as updateStream(path, rateHz, timeoutMs) or updateStream()
+            path = pathOrRateHz;
+            rateHz = rateHzOrTimeoutMs;
+            timeout = timeoutMs;
+        }
 
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1550
         const result = await this.sendWithResult<Schema.RadStreamResult>({
@@ -643,6 +700,9 @@ export class RadBleApi extends BleConnectionHandler {
          * 1. A promise returned to the caller that waits on a snapshot to be received
          * 2. An internal asynchronous command queue to start and stop streams on the remote device that sends data to #onStream
          * 3. #onStream that resolves the promise returned to the caller, this is fired on an incoming stream notification
+         * 
+         * It's been made in this complex way so that multiple asynchronous calls to the same surface
+         * can be resolved with a single event instead of backing up in a queue
          */
 
         // #region (Part 1) Outward facing promise
@@ -1011,39 +1071,6 @@ export class RadBleApi extends BleConnectionHandler {
 
     #snakeCaseToCamelCase(str: string): string {
         return str.toLowerCase().replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
-    }
-
-    decodeStream<T>(dataView: DataView): Schema.RadStream<T> {
-        // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1938
-
-        const STREAM_HEADER_BYTES = 20;
-
-        if (dataView.byteLength <= STREAM_HEADER_BYTES)
-            throw new DOMException("Stream data too short", "DataError");
-
-        const payloadBytes = new Uint8Array(
-            dataView.buffer,
-            dataView.byteOffset + STREAM_HEADER_BYTES,
-            dataView.byteLength - STREAM_HEADER_BYTES
-        );
-
-        let data: T = payloadBytes as T;
-
-        const flags = dataView.getUint16(2, true);
-        if ((flags & Schema.RadStreamFlags.Utf8Json) !== 0)
-            data = this.#parseValueAsJson(payloadBytes);
-
-        return {
-            protocolVersion: dataView.getUint8(0),
-            streamId: dataView.getUint8(1),
-            flags,
-            format: dataView.getUint16(4, true),
-            payloadLength: dataView.getUint16(6, true),
-            sequence: dataView.getUint32(8, true),
-            timestampMs: dataView.getUint32(12, true),
-            droppedCount: dataView.getUint32(16, true),
-            data
-        };
     }
     // #endregion
 }

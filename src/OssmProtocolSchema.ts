@@ -113,3 +113,12 @@ export enum OssmMenu {
     Streaming = "streaming",
     Pairing = "pairing",
 }
+
+export type OssmSurface = Extract<RadSchema.RadSurface,
+    RadSchema.RadSurface.Essential
+    | RadSchema.RadSurface.Encoder
+    | RadSchema.RadSurface.Connectivity
+    | RadSchema.RadSurface.Analog
+    | RadSchema.RadSurface.Button
+    | RadSchema.RadSurface.Motion
+>;
