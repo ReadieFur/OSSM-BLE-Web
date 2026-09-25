@@ -27,7 +27,7 @@ export class AsyncFunctionQueue {
                 reject
             };
             this.#queue.push(queueItem);
-            this.processQueue();
+            this.#processQueue();
         });
     }
 
@@ -44,7 +44,7 @@ export class AsyncFunctionQueue {
                 reject
             };
             this.#queue.unshift(queueItem);
-            this.processQueue();
+            this.#processQueue();
         });
     }
 
@@ -61,7 +61,7 @@ export class AsyncFunctionQueue {
             item.reject(error);
     }
 
-    private async processQueue(): Promise<void> {
+    async #processQueue(): Promise<void> {
         if (this.#isProcessing) return;
         this.#isProcessing = true;
 

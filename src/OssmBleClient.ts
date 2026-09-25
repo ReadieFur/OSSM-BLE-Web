@@ -323,37 +323,37 @@ export class OssmBleClient extends RadBleApi {
     // #region [input|event].emit
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L431
 
-    private async emitEvent(path: string, args?: Record<string, unknown>): Promise<void> {
+    async #emitEvent(path: string, args?: Record<string, unknown>): Promise<void> {
         this._requireLease();
         await this.send({ op: "event.emit", path, args }, this.lease!);
     }
 
     async emitButtonEvent(clickType: Schema.OssmButtonClickType): Promise<void> {
-        await this.emitEvent("button.enter", { event: clickType });
+        await this.#emitEvent("button.enter", { event: clickType });
     }
 
     async emitReturnToMenuEvent(): Promise<void> {
-        await this.emitEvent("event.returnToMenu");
+        await this.#emitEvent("event.returnToMenu");
     }
 
     async emitDoneEvent(): Promise<void> {
-        await this.emitEvent("event.done");
+        await this.#emitEvent("event.done");
     }
 
     async emitErrorEvent(): Promise<void> {
-        await this.emitEvent("event.error");
+        await this.#emitEvent("event.error");
     }
 
     async emitGoHomeEvent(): Promise<void> {
-        await this.emitEvent("event.home");
+        await this.#emitEvent("event.home");
     }
 
     async emitEmergencyStopEvent(): Promise<void> {
-        await this.emitEvent("event.emergencyStop");
+        await this.#emitEvent("event.emergencyStop");
     }
 
     async emitUpdateUnavailableEvent(): Promise<void> {
-        await this.emitEvent("event.updateUnavailable");
+        await this.#emitEvent("event.updateUnavailable");
     }
     // #endregion
 

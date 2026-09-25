@@ -64,9 +64,11 @@ type RadNotifiableCharacteristicKey = {
         never;
 }[RawSpecKey];
 
+type GattValue = DataView | undefined;
+
 type RadTelemetryObjType<OWNED extends boolean = false> = {
     [K in RadNotifiableCharacteristicKey]:
-        OWNED extends true ? SingleEventSource<[Event]> : SingleEvent<[Event]>
+        OWNED extends true ? SingleEventSource<[GattValue]> : SingleEvent<[GattValue]>
 };
 // #endregion
 
@@ -78,8 +80,6 @@ const defaultRadRequestTimeoutMs = 6000;
 export class RadBleApi extends BleConnectionHandler {
     readonly #handleIncomingTelemetrySignature = this.#handleIncomingTelemetry.bind(this);
     readonly #radServiceUuid: Readonly<string>;
-    readonly #enc = new TextEncoder();
-    readonly #dec = new TextDecoder();
     #radCharacteristics: RadCharacteristicGatts = {} as RadCharacteristicGatts;
     #radCharacteristicGattMap: Map<BluetoothRemoteGATTCharacteristic, RadCharacteristicKey> = new Map();
     #nextId = 1;
@@ -89,11 +89,13 @@ export class RadBleApi extends BleConnectionHandler {
         timer: number;
     }>();
 
+    protected readonly _enc = new TextEncoder();
+    protected readonly _dec = new TextDecoder();
     protected get _radService(): RadCharacteristicGatts { return this.#radCharacteristics; }
     protected readonly _onRadTelemetry: Readonly<RadTelemetryObjType<true>>;
-    get onRadTelemetry(): Readonly<RadTelemetryObjType<false>> { return this._onRadTelemetry; }
 
-    public lease: RadLease | null = null;
+    lease: RadLease | null = null;
+    get onRadTelemetry(): Readonly<RadTelemetryObjType<false>> { return this._onRadTelemetry; }
     
     // #region BLE lifecycle
     constructor(serviceUuid: string, device: BluetoothDevice) {
@@ -107,7 +109,7 @@ export class RadBleApi extends BleConnectionHandler {
         const notifier = {} as RadTelemetryObjType<true>;
         for (const [rawKey, spec] of Object.entries(RAD_CHARACTERISTICS_SPEC))
             if (spec.properties.some(p => p === "notify" || p === "indicate"))
-                notifier[this.#snakeCaseToCamelCase(rawKey) as RadNotifiableCharacteristicKey] = new SingleEventSource<[Event]>();
+                notifier[this.#snakeCaseToCamelCase(rawKey) as RadNotifiableCharacteristicKey] = new SingleEventSource<[GattValue]>();
         this._onRadTelemetry = notifier;
     }
 
@@ -223,10 +225,10 @@ export class RadBleApi extends BleConnectionHandler {
             if (lease.isExpired)
                 throw new DOMException("Cannot send RAD request with expired lease", "InvalidStateError");
             request.lease = lease.token!;
-            payload = () => this.#enc.encode(JSON.stringify(request));
+            payload = () => this._enc.encode(JSON.stringify(request));
         } else {
             request.lease = lease;
-            const payloadBuf = this.#enc.encode(JSON.stringify(request));
+            const payloadBuf = this._enc.encode(JSON.stringify(request));
             payload = () => payloadBuf;
         }
 
@@ -276,12 +278,13 @@ export class RadBleApi extends BleConnectionHandler {
 
     #handleIncomingTelemetry(event: Event) {
         if (!event.target) return;
-        const key = this.#radCharacteristicGattMap.get(event.target as BluetoothRemoteGATTCharacteristic);
+        const target = event.target as BluetoothRemoteGATTCharacteristic
+        const key = this.#radCharacteristicGattMap.get(target);
         if (!key) return;
 
         switch (key) {
             case "response":
-                this.#onResponse(event);
+                this.#onResponse(target.value);
                 break;
             default:
                 /* Certain snapshots are sent out periodically, but I think they are mostly left down to the abstract implementation
@@ -289,7 +292,7 @@ export class RadBleApi extends BleConnectionHandler {
                 * https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L820
                 */
                 // 'key' should always be 'RadNotifiableCharacteristicKey' here
-                this._onRadTelemetry[key as RadNotifiableCharacteristicKey].dispatch(event);
+                this._onRadTelemetry[key as RadNotifiableCharacteristicKey].dispatch(target.value);
                 break;
         }
     }
@@ -297,7 +300,7 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * Handles incoming RAD responses from the device and either rejects or resolves pending requests
      */
-    #onResponse(event: Event): void {
+    #onResponse(value: GattValue): void {
         /* I bless Copilot for helping my find the core of how this RAD API works (namely around the request/response handling)
         * There are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
         * https://github.com/researchanddesire/rad-ble/blob/main/src/RadBleProtocol.generated.h
@@ -305,7 +308,6 @@ export class RadBleApi extends BleConnectionHandler {
         * or a lot of them point to the same method handler inside the firmware (so we can just reuse request/response)
         */
 
-        const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
         if (!value) return;
         const msg = this.#parseValueAsJson<Schema.RadResponse>(value);
         this._debugLog("RAD response received:", msg);
@@ -678,7 +680,7 @@ export class RadBleApi extends BleConnectionHandler {
 
     // #region Helpers
     #parseValueAsJson<T = unknown>(value: DataView): T {
-        const str = this.#dec.decode(value);
+        const str = this._dec.decode(value);
         return JSON.parse(str) as T;
     }
 
