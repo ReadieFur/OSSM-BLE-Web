@@ -579,7 +579,8 @@ export class RadBleApi extends BleConnectionHandler {
 
     /**
      * Gets a snapshot for a given surface (via path)
-     * @param path The property path that is streamable
+     * @param path The property path that is streamable  
+     * *Due to quirkiness in how the firmware works, despite streams returning snapshots of entire surfaces, the stream parameter requires the path to a property instead...*
      * @returns A snapshot of the surface that the property belongs to
      */
     async getSnapshot<T>(path: string, timeoutMs?: number): Promise<T> {
