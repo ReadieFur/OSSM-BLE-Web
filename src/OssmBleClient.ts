@@ -30,6 +30,7 @@ export class OssmBleClient extends RadBleApi {
      * https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L570
      */
 
+    // #region Snapshots
     // Shadow the base class getStateSnapshot to return the OSSM-specific StateSnapshot type
     override async getStateSnapshot(timeoutMs?: number): Promise<Schema.OssmStateSnapshot> {
         return super.getStateSnapshot(timeoutMs);
@@ -42,6 +43,23 @@ export class OssmBleClient extends RadBleApi {
     override async getConnectivitySnapshot(timeoutMs?: number): Promise<Schema.OssmConnectivitySnapshot> {
         return super.getConnectivitySnapshot(timeoutMs) as any as Schema.OssmConnectivitySnapshot;
     }
+
+    async getButtonSnapshot(timeoutMs?: number): Promise<Schema.OssmButtonSnapshot> {
+        return this.getSnapshot("button.emergencyStop", timeoutMs);
+    }
+
+    async getEncoderSnapshot(timeoutMs?: number): Promise<Schema.OssmEncoderSnapshot> {
+        return this.getSnapshot("encoder.main", timeoutMs);
+    }
+
+    async getAnalogSnapshot(timeoutMs?: number): Promise<Schema.OssmAnalogSnapshot> {
+        return this.getSnapshot("analog.motorCurrent", timeoutMs);
+    }
+
+    async getMotionSnapshot(timeoutMs?: number): Promise<Schema.OssmMotionSnapshot> {
+        return this.getSnapshot("motion.speed", timeoutMs);
+    }
+    // #endregion
 
     // #region setting.read
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L239
