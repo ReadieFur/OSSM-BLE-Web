@@ -54,6 +54,10 @@ export abstract class BleConnectionHandler implements Disposable {
 
     [Symbol.dispose](): void {
         this.disconnect();
+        /* Event cleanup is required here since the _device object managed by the browser is persistent within the session
+         * and so can cause this to be called over and over every time a new implimentation using the same device is made.
+         */
+        this._device.removeEventListener("gattserverdisconnected", this.#handleGattDisconnectedSignature);
     }
 
     //#region Connection lifecycle
