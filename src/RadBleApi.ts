@@ -91,6 +91,7 @@ export class RadBleApi extends BleConnectionHandler {
     #radCharacteristics: RadCharacteristicGatts = {} as RadCharacteristicGatts;
     #radCharacteristicGattMap: Map<BluetoothRemoteGATTCharacteristic, RadCharacteristicKey> = new Map();
     /** A map of all the requests that are currently being processed */
+    #defaultTimeoutMs = 6000;
     #requests = {
         nextId: 1,
         pending: new Map<number, ResolveRejectTimer<Schema.RadResponse>>()
@@ -98,7 +99,7 @@ export class RadBleApi extends BleConnectionHandler {
     // #nextRequestId = 1;
     // #pendingRequests = new Map<number, ResolveRejectTimer<Schema.RadResponse>>();
     #activeStream: Schema.RadStreamResult | null = null;
-    #pendingSnapshots = {
+    readonly #pendingSnapshots = {
         /** Holds the stream that the snapshot manager is currently waiting on */
         activeStream: null as { id: number; surface: string; } | null,
         /** Keeps track of pending snapshot requests */
@@ -115,14 +116,19 @@ export class RadBleApi extends BleConnectionHandler {
 
     protected readonly _enc = new TextEncoder();
     protected readonly _dec = new TextDecoder();
-    protected _defaultTimeoutMs = 6000;
     protected get _radService(): RadCharacteristicGatts { return this.#radCharacteristics; }
     protected readonly _onRadTelemetry: Readonly<RadTelemetryObjType<true>>;
 
     lease: RadLease | null = null;
     get onRadTelemetry(): Readonly<RadTelemetryObjType<false>> { return this._onRadTelemetry; }
     get activeStream(): Schema.RadStreamResult | null { return this.activeStream; }
-    
+    get defaultTimeoutMs() { return this.#defaultTimeoutMs; }
+    set defaultTimeoutMs(value: number) {
+        if (value <= 0 || Number.isNaN(value))
+            throw new DOMException("Value must be a positive integer");
+        this.#defaultTimeoutMs = value;
+    }
+
     // #region BLE lifecycle
     constructor(serviceUuid: string, device: BluetoothDevice) {
         super(device);
@@ -227,7 +233,7 @@ export class RadBleApi extends BleConnectionHandler {
      * Sends a RAD request to the device and waits for a response
      * @param req The request object to send. Must satisfy {@link RadRequest}
      * @param lease Optional lease to include in the request. If the request requires a lease, this must be provided otherwise the request will fail. Use {@link acquireLease} to obtain a lease.
-     * @param timeoutMs Optional timeout in milliseconds to wait for a response before rejecting. Defaults to {@link _defaultTimeoutMs}
+     * @param timeoutMs Optional timeout in milliseconds to wait for a response before rejecting. Defaults to {@link defaultTimeoutMs}
      * @returns A promise that resolves to {@link RadResponse} containing the response data
      */
     async send<T = unknown>(
@@ -236,7 +242,7 @@ export class RadBleApi extends BleConnectionHandler {
         timeoutMs?: number,
         isPriority: boolean = false
     ): Promise<Schema.RadResponse<T>> {
-        if (!timeoutMs) timeoutMs = this._defaultTimeoutMs;
+        if (!timeoutMs) timeoutMs = this.defaultTimeoutMs;
 
         const id = this.#requests.nextId++;
         const request: Schema.RadRequest = { v: 1, id, ...req };
@@ -590,7 +596,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns A snapshot of the surface that the property belongs to
      */
     async getSnapshot<T>(path: string, timeoutMs?: number): Promise<T> {
-        if (!timeoutMs) timeoutMs = this._defaultTimeoutMs;
+        if (!timeoutMs) timeoutMs = this.defaultTimeoutMs;
         const [surface] = path.split(".", 2);
 
         this._requireLease();
