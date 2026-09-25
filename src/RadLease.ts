@@ -11,9 +11,9 @@ export abstract class RadLease {
  * A lease that is manually acquired and renewed on a host device
  */
 export class SimpleLease extends RadLease implements Disposable {
-    readonly #disconnectSignature = this.onApiDisconnected.bind(this);
-    protected readonly api: RadBleApi;
-    protected readonly ttlSeconds: number;
+    readonly #disconnectSignature = this._onApiDisconnected.bind(this);
+    protected readonly _api: RadBleApi;
+    protected readonly _ttlSeconds: number;
     protected _token: number | null = null;
     protected _expiresAt = 0;
     protected _disposed = false;
@@ -36,23 +36,23 @@ export class SimpleLease extends RadLease implements Disposable {
 
     /** Whether an active, non-expired lease is held on a connected host */
     get isAcquired(): boolean {
-        return !this.isExpired && this.api.isConnected;
+        return !this.isExpired && this._api.isConnected;
     }
 
     constructor(api: RadBleApi, ttlSeconds = 10) {
         super();
-        this.api = api;
-        this.ttlSeconds = ttlSeconds;
-        this.api.disconnectedEvent.subscribe(this.#disconnectSignature);
+        this._api = api;
+        this._ttlSeconds = ttlSeconds;
+        this._api.disconnectedEvent.subscribe(this.#disconnectSignature);
     }
 
     [Symbol.dispose](): void {
         this.release();
     }
 
-    protected async onApiDisconnected(): Promise<void> {
+    protected async _onApiDisconnected(): Promise<void> {
         // If autoReconnect is disabled then don't poll since it will never succeed, instead invalidate this lease
-        if (!this.api.autoReconnect)
+        if (!this._api.autoReconnect)
             await this.release();
     }
 
@@ -63,9 +63,9 @@ export class SimpleLease extends RadLease implements Disposable {
         if (this._disposed) throw new DOMException("Lease has been released", "InvalidStateError");
 
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L924
-        const res = await this.api.sendWithResult<RadControlAcquireResult>({
+        const res = await this._api.sendWithResult<RadControlAcquireResult>({
             op: "control.acquire",
-            args: { ttl: this.ttlSeconds },
+            args: { ttl: this._ttlSeconds },
         });
 
         this._token = res.lease;
@@ -82,8 +82,8 @@ export class SimpleLease extends RadLease implements Disposable {
 
         // Tokens do not change on renewal, only the expiration timestamp is updated
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L959
-        await this.api.send({ op: "control.renew", args: { ttl: this.ttlSeconds } }, this._token);
-        this._expiresAt = Date.now() + (this.ttlSeconds * 1000);
+        await this._api.send({ op: "control.renew", args: { ttl: this._ttlSeconds } }, this._token);
+        this._expiresAt = Date.now() + (this._ttlSeconds * 1000);
     }
 
     /**
@@ -95,13 +95,13 @@ export class SimpleLease extends RadLease implements Disposable {
         this._token = null;
         this._expiresAt = 0;
 
-        if (currentToken !== null && this.api.isConnected) {
+        if (currentToken !== null && this._api.isConnected) {
             //https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L975
-            try { await this.api.send({ op: "control.release" }, currentToken); }
+            try { await this._api.send({ op: "control.release" }, currentToken); }
             catch { /* Ignore disconnect or teardown errors */ }
         }
 
-        this.api.disconnectedEvent.unsubscribe(this.#disconnectSignature);
+        this._api.disconnectedEvent.unsubscribe(this.#disconnectSignature);
     }
 }
 
@@ -148,7 +148,7 @@ export class AutoLease extends SimpleLease {
 
         try {
             await super.renew();
-            this.#scheduleNext(this.ttlSeconds * 1000 * this.#autoLeaseRenewalFactor);
+            this.#scheduleNext(this._ttlSeconds * 1000 * this.#autoLeaseRenewalFactor);
         } catch {
             this._token = null;
             this._expiresAt = 0;
@@ -176,7 +176,7 @@ export class AutoLease extends SimpleLease {
         }
 
         // If host is down, wait before trying again
-        if (!this.api.isConnected) {
+        if (!this._api.isConnected) {
             this._token = null;
             this._expiresAt = 0;
 
@@ -201,7 +201,7 @@ export class AutoLease extends SimpleLease {
         // Renewal phase (active lease, not expired)
         try {
             await super.renew();
-            this.#scheduleNext(this.ttlSeconds * 1000 * this.#autoLeaseRenewalFactor);
+            this.#scheduleNext(this._ttlSeconds * 1000 * this.#autoLeaseRenewalFactor);
             return this._token;
         } catch {
             this._token = null;

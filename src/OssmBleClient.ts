@@ -324,7 +324,7 @@ export class OssmBleClient extends RadBleApi {
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L431
 
     private async emitEvent(path: string, args?: Record<string, unknown>): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         await this.send({ op: "event.emit", path, args }, this.lease!);
     }
 
@@ -361,20 +361,20 @@ export class OssmBleClient extends RadBleApi {
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L465
 
     async navigateTo(menu: Schema.OssmMenu): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         const result = await this.send<{ deferred?: true }>({ op: "target.set", path: `target.${menu}` }, this.lease!);
         // TODO: If the task is deferred figure out how to wait for it to complete
     }
 
     /** Runs the calibration task on the machine */
     async homeRail(): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         this.send({ op: "target.set", path: "target.home" }, this.lease!);
     }
 
     /** Emergency stops the device */
     async emergencyStop(): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         this.send({ op: "target.set", path: "target.emergencyStop" }, this.lease!);
     }
 
@@ -384,7 +384,7 @@ export class OssmBleClient extends RadBleApi {
      * @note Requires the device to be in {@link Schema.OssmMenu.Streaming} mode
      */
     async streamPosition(position: number, durationMs: number): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         this.send({
             op: "target.set",
             path: "motion.position",
@@ -405,7 +405,7 @@ export class OssmBleClient extends RadBleApi {
      * @param isAbsolute When 'true' the value is written as-is to the encoder. When 'false' the value is added to the current encoder value
      */
     async encoderWrite(value: number, isAbsolute: boolean) {
-        this.requireLease();
+        this._requireLease();
         await this.send({
             op: isAbsolute ? "encoder.set" : "encoder.delta",
             path: "encoder.main",
@@ -425,7 +425,7 @@ export class OssmBleClient extends RadBleApi {
      * @note The firmware seems to reset this value after a couple hundred milliseconds
      */
     async setLed(r: number, g: number, b: number): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         // Range validation will be left to the firmware
         await this.send({ op: "indicator.set", path: "indicator.status", args: { r, g, b } }, this.lease!);
     }

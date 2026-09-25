@@ -114,7 +114,7 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * Sets up the RAD BLE service and its characteristics, and starts notifications for the relevant channels. This is called automatically during the connection process
      */
-    protected async setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void> {
+    protected async _setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void> {
         this.#radCharacteristics = {} as RadCharacteristicGatts;
         this.#radCharacteristicGattMap.clear();
 
@@ -179,7 +179,7 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * Called before disconnecting. Cleans up any resources that were allocated during the connection
      */
-    protected override async onBeforeDisconnect(): Promise<void> {
+    protected override async _onBeforeDisconnect(): Promise<void> {
         for (const characteristic of Object.values(this.#radCharacteristics))
             if (characteristic.properties.notify || characteristic.properties.read)
                 characteristic.removeEventListener("characteristicvaluechanged", this.#handleIncomingTelemetrySignature);
@@ -188,7 +188,7 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * Invalidates the stored RAD service
      */
-    protected override async onDisconnected(wasConnected: boolean): Promise<void> {
+    protected override async _onDisconnected(wasConnected: boolean): Promise<void> {
         this.#radCharacteristics = {} as RadCharacteristicGatts;
         this.#radCharacteristicGattMap.clear();
     }
@@ -281,7 +281,7 @@ export class RadBleApi extends BleConnectionHandler {
 
         switch (key) {
             case "response":
-                this.onResponse(event);
+                this.#onResponse(event);
                 break;
             default:
                 /* Certain snapshots are sent out periodically, but I think they are mostly left down to the abstract implementation
@@ -297,7 +297,7 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * Handles incoming RAD responses from the device and either rejects or resolves pending requests
      */
-    protected onResponse(event: Event): void {
+    #onResponse(event: Event): void {
         /* I bless Copilot for helping my find the core of how this RAD API works (namely around the request/response handling)
         * There are NO ossm docs for this and the firmware source code is frankly a steaming pile of shit x3
         * https://github.com/researchanddesire/rad-ble/blob/main/src/RadBleProtocol.generated.h
@@ -308,7 +308,7 @@ export class RadBleApi extends BleConnectionHandler {
         const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
         if (!value) return;
         const msg = this.#parseValueAsJson<Schema.RadResponse>(value);
-        this.debugLog("RAD response received:", msg);
+        this._debugLog("RAD response received:", msg);
         if (!msg || !this.#pending.has(msg.id)) return;
 
         const p = this.#pending.get(msg.id)!;
@@ -436,7 +436,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires A valid lease token
      */
     async startStream(path: string, rateHz?: number): Promise<Schema.RadStreamResult> {
-        this.requireLease();
+        this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1569
         return this.sendWithResult<Schema.RadStreamResult>({
             op: "stream.start",
@@ -455,7 +455,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires A valid lease token
      */
     async updateStream(path?: string, rateHz?: number): Promise<Schema.RadStreamResult> {
-        this.requireLease();
+        this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1550
         return this.sendWithResult<Schema.RadStreamResult>({
             op: "stream.update",
@@ -470,7 +470,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires A valid lease token
      */
     async stopStream(): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1542
         await this.send({ op: "stream.stop" }, this.lease!);
     }
@@ -529,7 +529,7 @@ export class RadBleApi extends BleConnectionHandler {
                 frameArray.set(new Uint8Array(chunk), 14);
 
                 await this.enqueueBleTask(async () => {
-                    this.requireRadCharacteristic("otaData");
+                    this._requireRadCharacteristic("otaData");
                     await this._radService.otaData!.writeValueWithoutResponse(frameArray);
                 });
 
@@ -574,7 +574,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires A valid lease token
      */
     async wifiScan(): Promise<Schema.RadWiFiScanResult> {
-        this.requireLease();
+        this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1606
         const res = await this.sendWithResult<Partial<Schema.RadWiFiScanResult>>({ op: "wifi.scan" }, this.lease!);
 
@@ -591,7 +591,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires A valid lease token
      */
     async wifiForget(): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1705
         await this.send({ op: "wifi.forget" }, this.lease!);
     }
@@ -604,7 +604,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires A valid lease token
      */
     async wifiConfigure(ssid: string, password?: string): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1711
         await this.send({ op: "wifi.configure", args: { ssid, password } }, this.lease!);
     }
@@ -615,7 +615,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @note This also discards this RAD API instance
      */
     async restartSystem(): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         await this.send({ op: "system.restart" }, this.lease!);
         this.disconnect();
     }
@@ -627,7 +627,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires A valid lease token
      */
     async readSetting<T = unknown>(path: string): Promise<T> {
-        this.requireLease();
+        this._requireLease();
         // Handled by abstract command handler, compile time type is unknown
         return this.sendWithResult<T>({ op: "setting.read", path }, this.lease!);
     }
@@ -640,7 +640,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires A valid lease token
      */
     async writeSetting<T = unknown>(path: string, args: Record<string, unknown>): Promise<T> {
-        this.requireLease();
+        this._requireLease();
         // Handled by abstract command handler, compile time type is unknown
         return this.sendWithResult<T>({
             op: "setting.write",
@@ -655,7 +655,7 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires A valid lease token
      */
     async resetSetting(path: string): Promise<void> {
-        this.requireLease();
+        this._requireLease();
         // Handled by abstract command handler, compile time type is unknown
         await this.send({ op: "setting.reset", path }, this.lease!);
     }
@@ -682,7 +682,7 @@ export class RadBleApi extends BleConnectionHandler {
         return JSON.parse(str) as T;
     }
 
-    protected requireRadCharacteristic(characteristic: RadCharacteristicKey) {
+    protected _requireRadCharacteristic(characteristic: RadCharacteristicKey) {
         if (!this._radService[characteristic])
             throw new DOMException(`Characteristic ${characteristic} not available`, "InvalidStateError");
     }
@@ -691,7 +691,7 @@ export class RadBleApi extends BleConnectionHandler {
      * Ensures that a lease is currently active and valid.
      * @throws DOMException if no lease is available or if the existing lease has expired.
      */
-    protected requireLease(): void {
+    protected _requireLease(): void {
         if (!this.lease)
             throw new DOMException("No lease acquired", "InvalidStateError");
         if (this.lease.isExpired)

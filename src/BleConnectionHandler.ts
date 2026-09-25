@@ -29,8 +29,8 @@ export abstract class BleConnectionHandler implements Disposable {
 
     #connectionState: BleConnectionState = BleConnectionState.Disconnected;
 
-    protected readonly device: BluetoothDevice;
-    protected readonly taskQueue = new AsyncFunctionQueue();
+    protected readonly _device: BluetoothDevice;
+    protected readonly _taskQueue = new AsyncFunctionQueue();
 
     readonly connectedEvent: SingleEvent = new SingleEventSource();
     readonly disconnectedEvent: SingleEvent = new SingleEventSource();
@@ -42,14 +42,14 @@ export abstract class BleConnectionHandler implements Disposable {
     reconnectRetryDelayMs: number = 250;
 
     get connectionState(): BleConnectionState {return this.#connectionState; }
-    get isConnected(): boolean { return this.#connectionState === BleConnectionState.Connected && !!this.device.gatt?.connected; }
+    get isConnected(): boolean { return this.#connectionState === BleConnectionState.Connected && !!this._device.gatt?.connected; }
 
     constructor(device: BluetoothDevice) {
-        this.device = device;
-        if (!this.device.gatt)
+        this._device = device;
+        if (!this._device.gatt)
             throw new DOMException("Device is not connectable via GATT.", "NotSupportedError");
 
-        this.device.addEventListener("gattserverdisconnected", this.#handleGattDisconnectedSignature);
+        this._device.addEventListener("gattserverdisconnected", this.#handleGattDisconnectedSignature);
     }
 
     [Symbol.dispose](): void {
@@ -61,8 +61,8 @@ export abstract class BleConnectionHandler implements Disposable {
      * Begins automatic connection and lifecycle management
      */
     async begin(): Promise<void> {
-        try { await this.connect(); }
-        catch (error) { this.debugLog("Initial connection attempt failed.", error); }
+        try { await this._connect(); }
+        catch (error) { this._debugLog("Initial connection attempt failed.", error); }
     }
 
     /**
@@ -71,41 +71,41 @@ export abstract class BleConnectionHandler implements Disposable {
     async disconnect(): Promise<void> {
         this.autoReconnect = false;
         this.#connectionState = BleConnectionState.Disconnecting;
-        this.taskQueue.clearQueue("Disconnecting from device.");
+        this._taskQueue.clearQueue("Disconnecting from device.");
 
-        await this.onBeforeDisconnect();
+        await this._onBeforeDisconnect();
 
-        if (this.device.gatt?.connected)
-            this.device.gatt.disconnect();
+        if (this._device.gatt?.connected)
+            this._device.gatt.disconnect();
 
         this.#connectionState = BleConnectionState.Disconnected;
         (this.disconnectedEvent as SingleEventSource).dispatch();
     }
 
-    protected async connect(): Promise<void> {
-        if (this.device.gatt?.connected && this.#connectionState === BleConnectionState.Connected)
+    protected async _connect(): Promise<void> {
+        if (this._device.gatt?.connected && this.#connectionState === BleConnectionState.Connected)
             return;
 
         this.#connectionState = BleConnectionState.Connecting;
-        this.taskQueue.clearQueue("Initiating new connection, clearing stale tasks.");
+        this._taskQueue.clearQueue("Initiating new connection, clearing stale tasks.");
 
-        this.debugLog("Connecting GATT server...");
-        let gattServer = await this.taskQueue.enqueue(() => this.device.gatt!.connect());
-        await this.setupServicesAndCharacteristics(gattServer);
+        this._debugLog("Connecting GATT server...");
+        let gattServer = await this._taskQueue.enqueue(() => this._device.gatt!.connect());
+        await this._setupServicesAndCharacteristics(gattServer);
 
         this.#connectionState = BleConnectionState.Connected;
-        this.debugLog("Connected");
+        this._debugLog("Connected");
         (this.connectedEvent as SingleEventSource).dispatch();
     }
 
     async #handleGattDisconnected(): Promise<void> {
         const wasConnected = this.#connectionState === BleConnectionState.Connected;
         this.#connectionState = BleConnectionState.Disconnected;
-        this.debugLog("Disconnected");
+        this._debugLog("Disconnected");
 
         (this.disconnectedEvent as SingleEventSource).dispatch();
 
-        await this.onDisconnected(wasConnected);
+        await this._onDisconnected(wasConnected);
 
         if (this.autoReconnect)
             await this.#runReconnectLoop();
@@ -113,7 +113,7 @@ export abstract class BleConnectionHandler implements Disposable {
 
     async #runReconnectLoop(): Promise<void> {
         this.#connectionState = BleConnectionState.Reconnecting;
-        this.debugLog("Reconnecting...");
+        this._debugLog("Reconnecting...");
         (this.reconnectingEvent as SingleEventSource).dispatch();
 
         let attempt = 0;
@@ -121,17 +121,17 @@ export abstract class BleConnectionHandler implements Disposable {
         while (this.autoReconnect && !this.isConnected) {
             try {
                 attempt++;
-                this.debugLog(`Reconnection attempt ${attempt}...`);
-                await this.connect();
+                this._debugLog(`Reconnection attempt ${attempt}...`);
+                await this._connect();
                 break;
             } catch (error) {
-                this.debugLog(`Reconnection attempt ${attempt} failed:`, error);
+                this._debugLog(`Reconnection attempt ${attempt} failed:`, error);
                 await new Promise((resolve) => setTimeout(resolve, this.reconnectRetryDelayMs));
             }
         }
 
         if (this.isConnected)
-            await this.onReconnected();
+            await this._onReconnected();
     }
     //#endregion
 
@@ -139,22 +139,22 @@ export abstract class BleConnectionHandler implements Disposable {
     /**
      * Override to perform GATT service/characteristic discovery and notification subscriptions
      */
-    protected abstract setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void>;
+    protected abstract _setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void>;
 
     /**
      * Executed upon reconnection after a disconnection event
      */
-    protected async onReconnected(): Promise<void> {}
+    protected async _onReconnected(): Promise<void> {}
 
     /**
      * Executed prior to explicit disconnection
      */
-    protected async onBeforeDisconnect(): Promise<void> {}
+    protected async _onBeforeDisconnect(): Promise<void> {}
 
     /**
      * Executed when disconnection occurs
      */
-    protected async onDisconnected(wasConnected: boolean): Promise<void> {}
+    protected async _onDisconnected(wasConnected: boolean): Promise<void> {}
     //#endregion
 
     //#region Task queue & helpers
@@ -177,13 +177,13 @@ export abstract class BleConnectionHandler implements Disposable {
         };
     }
 
-    async enqueueBleTask<T>(fn: () => Promise<T>): Promise<T> { return this.taskQueue.enqueue(fn); }
-    async prependBleTask<T>(fn: () => Promise<T>): Promise<T> { return this.taskQueue.prepend(fn); }
-    clearBleTaskQueue(reason?: Error | string): void { this.taskQueue.clearQueue(reason); }
+    async enqueueBleTask<T>(fn: () => Promise<T>): Promise<T> { return this._taskQueue.enqueue(fn); }
+    async prependBleTask<T>(fn: () => Promise<T>): Promise<T> { return this._taskQueue.prepend(fn); }
+    clearBleTaskQueue(reason?: Error | string): void { this._taskQueue.clearQueue(reason); }
 
-    protected debugLog(...args: any[]): void {
+    protected _debugLog(...args: any[]): void {
         if (this.debug)
-            console.log(`[${this.device.id}]`, ...args);
+            console.log(`[${this._device.id}]`, ...args);
     }
     //#endregion
 }
