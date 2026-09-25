@@ -177,8 +177,8 @@ export abstract class BleConnectionHandler implements Disposable {
         };
     }
 
-    async enqueueBleTask<T>(fn: () => Promise<T>): Promise<T> { return await this.taskQueue.enqueue(fn); }
-    async prependBleTask<T>(fn: () => Promise<T>): Promise<T> { return await this.taskQueue.prepend(fn); }
+    async enqueueBleTask<T>(fn: () => Promise<T>): Promise<T> { return this.taskQueue.enqueue(fn); }
+    async prependBleTask<T>(fn: () => Promise<T>): Promise<T> { return this.taskQueue.prepend(fn); }
     clearBleTaskQueue(reason?: Error | string): void { this.taskQueue.clearQueue(reason); }
 
     protected debugLog(...args: any[]): void {

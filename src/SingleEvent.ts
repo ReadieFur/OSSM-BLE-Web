@@ -19,7 +19,9 @@ export class SingleEventSource<Args extends any[] = []> implements SingleEvent<A
     }
 
     dispatch(...args: Args): void {
-        for (const listener of this.#listeners)
-            listener(...args);
+        for (const cb of this.#listeners) {
+            try { cb(...args); }
+            catch { /* Don't throw if a callback is faulty */ }
+        }
     };
 }
