@@ -59,7 +59,7 @@ type RadCharacteristicGatts = {
 
 // Filter for notifiable properties
 type RadNotifiableCharacteristicKey = {
-    [K in RawSpecKey]: 
+    [K in RawSpecKey]:
         "notify" extends typeof RAD_CHARACTERISTICS_SPEC[K]["properties"][number] ? SnakeToCamelCase<K> :
         "indicate" extends typeof RAD_CHARACTERISTICS_SPEC[K]["properties"][number] ? SnakeToCamelCase<K> :
         never;

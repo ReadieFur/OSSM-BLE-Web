@@ -122,3 +122,14 @@ export type OssmSurface = Extract<RadSchema.RadSurface,
     | RadSchema.RadSurface.Button
     | RadSchema.RadSurface.Motion
 >;
+
+type EnforceExhaustiveMap<K extends string | number | symbol, T extends Record<K, any>> = T;
+
+export type OssmSurfacePayloadMap = EnforceExhaustiveMap<OssmSurface, {
+    [RadSchema.RadSurface.Essential]: OssmEssentialSnapshot,
+    [RadSchema.RadSurface.Encoder]: OssmEncoderSnapshot,
+    [RadSchema.RadSurface.Connectivity]: OssmConnectivitySnapshot,
+    [RadSchema.RadSurface.Analog]: OssmAnalogSnapshot,
+    [RadSchema.RadSurface.Button]: OssmButtonSnapshot,
+    [RadSchema.RadSurface.Motion]: OssmMotionSnapshot
+}>;

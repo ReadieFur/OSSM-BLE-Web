@@ -1,18 +1,24 @@
-import { RadBleApi } from "./RadBleApi";
+import { RadBleApi, RadTelemetry } from "./RadBleApi";
 import * as OssmSchema from "./OssmProtocolSchema";
 import * as RadSchema from "./RadProtocolSchema";
+import { SingleEvent, SingleEventSource } from "./SingleEvent";
 
-// GATT schema definition
 const OSSM_SERVICE_UUID = "522b443a-4f53-534d-0001-420badbabe69";
 
-const OssmSurfaceStreamMap = {
+const OSSM_SURFACE_STREAM_MAP = {
     [RadSchema.RadSurface.Essential]: "essential.live",
     [RadSchema.RadSurface.Encoder]: "encoder.main",
     [RadSchema.RadSurface.Connectivity]: "connectivity.wifi",
     [RadSchema.RadSurface.Analog]: "analog.motorCurrent",
     [RadSchema.RadSurface.Button]: "button.emergencyStop",
     [RadSchema.RadSurface.Motion]: "motion.speed"
-} satisfies Record<OssmSchema.OssmSurface, string>;
+} as const satisfies Record<OssmSchema.OssmSurface, string>;
+
+type OssmSurfaceEvents<OWNED extends boolean = false> = {
+    [K in keyof OssmSchema.OssmSurfacePayloadMap]: OWNED extends true
+        ? SingleEventSource<[OssmSchema.OssmSurfacePayloadMap[K]]>
+        : SingleEvent<[OssmSchema.OssmSurfacePayloadMap[K]]>;
+};
 
 export class OssmBleClient extends RadBleApi {
     /**
@@ -29,8 +35,20 @@ export class OssmBleClient extends RadBleApi {
         return new OssmBleClient(bleDevice);
     }
 
+    readonly #onStreamSignature = this.#onStream.bind(this);
+    readonly #onSurface: Readonly<OssmSurfaceEvents<true>>;
+
+    get onSurface(): Readonly<OssmSurfaceEvents<false>> { return this.#onSurface; }
+
     constructor(device: BluetoothDevice) {
         super(OSSM_SERVICE_UUID, device);
+
+        const surfaceEventDispatchers = {} as OssmSurfaceEvents<true>;
+        for (const surfaceKey of Object.keys(OSSM_SURFACE_STREAM_MAP) as (keyof OssmSchema.OssmSurfacePayloadMap)[])
+            surfaceEventDispatchers[surfaceKey] = new SingleEventSource() as any;
+        this.#onSurface = surfaceEventDispatchers;
+
+        super.onRadTelemetry["sensorStream"].subscribe(this.#onStreamSignature);
     }
 
     /**
@@ -43,31 +61,45 @@ export class OssmBleClient extends RadBleApi {
     // #region Snapshots
     // Shadow the base class getStateSnapshot to return the OSSM-specific StateSnapshot type
     override async getStateSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmStateSnapshot> {
-        return super.getStateSnapshot(timeoutMs);
+        const snapshot = await super.getStateSnapshot(timeoutMs);
+        // this.#onSurface[RadSchema.RadSurface.State].dispatch(snapshot);
+        return snapshot;
     }
 
     override async getEssentialSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmEssentialSnapshot> {
-        return super.getEssentialSnapshot(timeoutMs) as any as OssmSchema.OssmEssentialSnapshot;
+        const snapshot = await super.getEssentialSnapshot(timeoutMs) as any as OssmSchema.OssmEssentialSnapshot;
+        this.#onSurface[RadSchema.RadSurface.Essential].dispatch(snapshot);
+        return snapshot;
     }
 
     override async getConnectivitySnapshot(timeoutMs?: number): Promise<OssmSchema.OssmConnectivitySnapshot> {
-        return super.getConnectivitySnapshot(timeoutMs) as any as OssmSchema.OssmConnectivitySnapshot;
+        const snapshot = await super.getConnectivitySnapshot(timeoutMs) as any as OssmSchema.OssmConnectivitySnapshot;
+        this.#onSurface[RadSchema.RadSurface.Connectivity].dispatch(snapshot);
+        return snapshot;
     }
 
     async getButtonSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmButtonSnapshot> {
-        return this.getSnapshot(OssmSurfaceStreamMap[RadSchema.RadSurface.Button], timeoutMs);
+        const snapshot = await this.getSnapshot<OssmSchema.OssmButtonSnapshot>(OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Button], timeoutMs);
+        this.#onSurface[RadSchema.RadSurface.Button].dispatch(snapshot);
+        return snapshot;
     }
 
     async getEncoderSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmEncoderSnapshot> {
-        return this.getSnapshot(OssmSurfaceStreamMap[RadSchema.RadSurface.Encoder], timeoutMs);
+        const snapshot = await this.getSnapshot<OssmSchema.OssmEncoderSnapshot>(OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Encoder], timeoutMs);
+        this.#onSurface[RadSchema.RadSurface.Encoder].dispatch(snapshot);
+        return snapshot;
     }
 
     async getAnalogSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmAnalogSnapshot> {
-        return this.getSnapshot(OssmSurfaceStreamMap[RadSchema.RadSurface.Analog], timeoutMs);
+        const snapshot = await this.getSnapshot<OssmSchema.OssmAnalogSnapshot>(OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Analog], timeoutMs);
+        this.#onSurface[RadSchema.RadSurface.Analog].dispatch(snapshot);
+        return snapshot;
     }
 
     async getMotionSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmMotionSnapshot> {
-        return this.getSnapshot(OssmSurfaceStreamMap[RadSchema.RadSurface.Motion], timeoutMs);
+        const snapshot = await this.getSnapshot<OssmSchema.OssmMotionSnapshot>(OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Motion], timeoutMs);
+        this.#onSurface[RadSchema.RadSurface.Motion].dispatch(snapshot);
+        return snapshot;
     }
     // #endregion
 
@@ -473,7 +505,7 @@ export class OssmBleClient extends RadBleApi {
         rateHz?: number,
         timeoutMs?: number
     ): Promise<RadSchema.RadStreamResult> {
-        return super.startStream(OssmSurfaceStreamMap[surface], rateHz, timeoutMs);
+        return super.startStream(OSSM_SURFACE_STREAM_MAP[surface], rateHz, timeoutMs);
     }
 
     override async updateStream(rateHz?: number, timeoutMs?: number): Promise<RadSchema.RadStreamResult>;
@@ -494,7 +526,7 @@ export class OssmBleClient extends RadBleApi {
             timeout = rateHzOrTimeoutMs;
         } else if (surfaceOrRateHz !== undefined) {
             // Called as updateStream(surface, rateHz, timeoutMs)
-            path = OssmSurfaceStreamMap[surfaceOrRateHz];
+            path = OSSM_SURFACE_STREAM_MAP[surfaceOrRateHz];
             rateHz = rateHzOrTimeoutMs;
             timeout = timeoutMs;
         } else {
@@ -505,6 +537,12 @@ export class OssmBleClient extends RadBleApi {
         }
 
         return super.updateStream(path, rateHz, timeout);
+    }
+
+    async #onStream(t: RadTelemetry): Promise<void> {
+        const streamTelemetry = t as RadSchema.RadStream;
+        if (!streamTelemetry.surface || !(streamTelemetry.surface in OSSM_SURFACE_STREAM_MAP)) return;
+        (this.#onSurface[streamTelemetry.surface as OssmSchema.OssmSurface] as SingleEventSource<[any]>).dispatch(streamTelemetry.data);
     }
     // #endregion
 }
