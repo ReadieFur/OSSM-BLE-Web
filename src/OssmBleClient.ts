@@ -232,7 +232,6 @@ export class OssmBleClient extends RadBleApi {
         return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.measuredStroke" })).value;
     }
 
-
     /**
      * @returns The target position in millimeters
      */
@@ -272,6 +271,7 @@ export class OssmBleClient extends RadBleApi {
     readGpioPin(params: RadApiBaseParams & { pin: number }): Promise<boolean>;
     async readGpioPin(arg: RadApiBaseParams & { pin: number } | number): Promise<boolean> {
         const opts = this._singleArg(arg, "pin");
+        this.#enforceRange(opts.pin, 0, 4, "Invalid GPIO pin number");
         return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>({ ...opts, path: `analog.expansion${opts.pin}` })).value;
     }
 
@@ -300,7 +300,8 @@ export class OssmBleClient extends RadBleApi {
 
     // #region setting.write
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L309
-    async setGpioPin(params: RadApiBaseParams & { pin: number, mode: OssmSchema.OssmGpioPinMode, value: number }): Promise<void> {
+    async setGpioPin(params: RadApiBaseParams & { pin: number, mode: OssmSchema.OssmGpioPinMode, value: boolean }): Promise<void> {
+        this.#enforceRange(params.pin, 0, 4, "Invalid GPIO pin number");
         await this.writeSetting({
             ...params,
             path: `analog.expansion${params.pin}`,
@@ -344,6 +345,7 @@ export class OssmBleClient extends RadBleApi {
     setAfterHomingPosition(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setAfterHomingPosition(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
+        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
         await this.writeSetting({ ...opts, path: "setting.afterHomingPosition", args: { value: opts.value }});
     }
 
@@ -351,6 +353,7 @@ export class OssmBleClient extends RadBleApi {
     setMqttPublishFrequency(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setMqttPublishFrequency(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
+        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
         await this.writeSetting({ ...opts, path: "setting.mqttPublishFrequency", args: { value: opts.value }});
     }
 
@@ -358,6 +361,7 @@ export class OssmBleClient extends RadBleApi {
     setSpeedBle(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setSpeedBle(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
+        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
         await this.writeSetting({ ...opts, path: "motion.speedBle", args: { value: opts.value }});
     }
 
@@ -373,6 +377,7 @@ export class OssmBleClient extends RadBleApi {
     setPattern(params: RadApiBaseParams & { patternIdx: number }): Promise<void>;
     async setPattern(arg: RadApiBaseParams & { patternIdx: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "patternIdx");
+        this.#enforceRange(opts.patternIdx, 0, Number.MAX_SAFE_INTEGER, "Pattern index must be positive");
         await this.writeSetting({ ...opts, path: "motion.pattern", args: { value: opts.patternIdx }});
     }
 
@@ -381,6 +386,7 @@ export class OssmBleClient extends RadBleApi {
     setSpeed(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setSpeed(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
+        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
         await this.writeSetting({ ...opts, path: "motion.speed", args: { value: opts.value }, isPriority: true });
     }
 
@@ -389,6 +395,7 @@ export class OssmBleClient extends RadBleApi {
     setStroke(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setStroke(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
+        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
         await this.writeSetting({ ...opts, path: "motion.stroke", args: { value: opts.value }});
     }
 
@@ -397,6 +404,7 @@ export class OssmBleClient extends RadBleApi {
     setDepth(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setDepth(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
+        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
         await this.writeSetting({ ...opts, path: "motion.depth", args: { value: opts.value }});
     }
 
@@ -405,6 +413,7 @@ export class OssmBleClient extends RadBleApi {
     setSensation(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setSensation(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
+        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
         await this.writeSetting({ ...opts, path: "motion.sensation", args: { value: opts.value }});
     }
 
@@ -564,6 +573,9 @@ export class OssmBleClient extends RadBleApi {
      */
     async setLed(params: RadApiBaseParams & { r: number, g: number, b: number }): Promise<void> {
         // Range validation will be left to the firmware
+        this.#enforceRange(params.r, 0, 255, "Red value must be between 0 and 255");
+        this.#enforceRange(params.g, 0, 255, "Green value must be between 0 and 255");
+        this.#enforceRange(params.b, 0, 255, "Blue value must be between 0 and 255");
         await this.send({
             ...params,
             req: {
@@ -697,6 +709,10 @@ export class OssmBleClient extends RadBleApi {
         }
 
         await applySensation();
+    }
+
+    #enforceRange(value: number, min: number, max: number, errorStr?: string): void {
+        if (value < min || value > max) throw new DOMException(errorStr, "IndexSizeError");
     }
     // #endregion
 }
