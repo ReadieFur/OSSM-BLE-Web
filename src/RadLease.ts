@@ -64,8 +64,13 @@ export class SimpleLease extends RadLease implements Disposable {
 
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L924
         const res = await this._api.sendWithResult<RadControlAcquireResult>({
-            op: "control.acquire",
-            args: { ttl: this._ttlSeconds },
+            req: {
+                op: "control.acquire",
+                args: {
+                    ttl: this._ttlSeconds
+                },
+            },
+            isPriority: true
         });
 
         this._token = res.lease;
@@ -82,7 +87,16 @@ export class SimpleLease extends RadLease implements Disposable {
 
         // Tokens do not change on renewal, only the expiration timestamp is updated
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L959
-        await this._api.send({ op: "control.renew", args: { ttl: this._ttlSeconds } }, this._token);
+        await this._api.send({
+            req: {
+                op: "control.renew",
+                args: {
+                    ttl: this._ttlSeconds
+                }
+            },
+            lease: this._token,
+            isPriority: true
+        });
         this._expiresAt = Date.now() + (this._ttlSeconds * 1000);
     }
 
@@ -97,7 +111,15 @@ export class SimpleLease extends RadLease implements Disposable {
 
         if (currentToken !== null && this._api.isConnected) {
             //https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L975
-            try { await this._api.send({ op: "control.release" }, currentToken); }
+            try {
+                await this._api.send({
+                    req: {
+                        op: "control.release"
+                    },
+                    lease:currentToken,
+                    isPriority: false
+                });
+            }
             catch { /* Ignore disconnect or teardown errors */ }
         }
 

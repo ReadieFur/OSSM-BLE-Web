@@ -1,4 +1,4 @@
-import { RadBleApi, RadTelemetry } from "./RadBleApi";
+import { RadApiBaseParams, RadBleApi, RadTelemetry } from "./RadBleApi";
 import * as OssmSchema from "./OssmProtocolSchema";
 import * as RadSchema from "./RadProtocolSchema";
 import { SingleEvent, SingleEventSource } from "./SingleEvent";
@@ -68,44 +68,44 @@ export class OssmBleClient extends RadBleApi {
 
     // #region Snapshots
     // Shadow the base class getStateSnapshot to return the OSSM-specific StateSnapshot type
-    override async getStateSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmStateSnapshot> {
-        const snapshot = await super.getStateSnapshot(timeoutMs);
+    override async getStateSnapshot(params: RadApiBaseParams = {}): Promise<OssmSchema.OssmStateSnapshot> {
+        const snapshot = await super.getStateSnapshot(params);
         // this.#onSurface[RadSchema.RadSurface.State].dispatch(snapshot);
         return snapshot;
     }
 
-    override async getEssentialSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmEssentialSnapshot> {
-        const snapshot = await super.getEssentialSnapshot(timeoutMs) as any as OssmSchema.OssmEssentialSnapshot;
+    override async getEssentialSnapshot(params: RadApiBaseParams = {}): Promise<OssmSchema.OssmEssentialSnapshot> {
+        const snapshot = await super.getEssentialSnapshot(params) as any as OssmSchema.OssmEssentialSnapshot;
         this.#onSurface[RadSchema.RadSurface.Essential].dispatch(snapshot);
         return snapshot;
     }
 
-    override async getConnectivitySnapshot(timeoutMs?: number): Promise<OssmSchema.OssmConnectivitySnapshot> {
-        const snapshot = await super.getConnectivitySnapshot(timeoutMs) as any as OssmSchema.OssmConnectivitySnapshot;
+    override async getConnectivitySnapshot(params: RadApiBaseParams = {}): Promise<OssmSchema.OssmConnectivitySnapshot> {
+        const snapshot = await super.getConnectivitySnapshot(params) as any as OssmSchema.OssmConnectivitySnapshot;
         this.#onSurface[RadSchema.RadSurface.Connectivity].dispatch(snapshot);
         return snapshot;
     }
 
-    async getButtonSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmButtonSnapshot> {
-        const snapshot = await this.getSnapshot<OssmSchema.OssmButtonSnapshot>(OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Button], timeoutMs);
+    async getButtonSnapshot(params: RadApiBaseParams = {}): Promise<OssmSchema.OssmButtonSnapshot> {
+        const snapshot = await this.getSnapshot<OssmSchema.OssmButtonSnapshot>({ ...params, path: OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Button] });
         this.#onSurface[RadSchema.RadSurface.Button].dispatch(snapshot);
         return snapshot;
     }
 
-    async getEncoderSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmEncoderSnapshot> {
-        const snapshot = await this.getSnapshot<OssmSchema.OssmEncoderSnapshot>(OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Encoder], timeoutMs);
+    async getEncoderSnapshot(params: RadApiBaseParams = {}): Promise<OssmSchema.OssmEncoderSnapshot> {
+        const snapshot = await this.getSnapshot<OssmSchema.OssmEncoderSnapshot>({ ...params, path: OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Encoder] });
         this.#onSurface[RadSchema.RadSurface.Encoder].dispatch(snapshot);
         return snapshot;
     }
 
-    async getAnalogSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmAnalogSnapshot> {
-        const snapshot = await this.getSnapshot<OssmSchema.OssmAnalogSnapshot>(OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Analog], timeoutMs);
+    async getAnalogSnapshot(params: RadApiBaseParams = {}): Promise<OssmSchema.OssmAnalogSnapshot> {
+        const snapshot = await this.getSnapshot<OssmSchema.OssmAnalogSnapshot>({ ...params, path: OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Analog] });
         this.#onSurface[RadSchema.RadSurface.Analog].dispatch(snapshot);
         return snapshot;
     }
 
-    async getMotionSnapshot(timeoutMs?: number): Promise<OssmSchema.OssmMotionSnapshot> {
-        const snapshot = await this.getSnapshot<OssmSchema.OssmMotionSnapshot>(OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Motion], timeoutMs);
+    async getMotionSnapshot(params: RadApiBaseParams = {}): Promise<OssmSchema.OssmMotionSnapshot> {
+        const snapshot = await this.getSnapshot<OssmSchema.OssmMotionSnapshot>({ ...params, path: OSSM_SURFACE_STREAM_MAP[RadSchema.RadSurface.Motion] });
         this.#onSurface[RadSchema.RadSurface.Motion].dispatch(snapshot);
         return snapshot;
     }
@@ -114,67 +114,67 @@ export class OssmBleClient extends RadBleApi {
     // #region setting.read
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L239
 
-    async getSpeed(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("motion.speed", timeoutMs, true)).value;
+    async getSpeed(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.speed", isPriority: true })).value;
     }
 
-    async getStroke(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("motion.stroke", timeoutMs)).value;
+    async getStroke(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.stroke" })).value;
     }
 
-    async getDepth(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("motion.depth", timeoutMs)).value;
+    async getDepth(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.depth" })).value;
     }
 
     /**
      * Gets the 'sensation' setting which is often used as an arbitrary parameter value for the set StrokeEngine pattern
      */
-    async getSensation(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("motion.sensation", timeoutMs)).value;
+    async getSensation(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.sensation" })).value;
     }
 
-    async getBuffer(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("motion.buffer", timeoutMs)).value;
+    async getBuffer(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.buffer" })).value;
     }
 
     /**
      * Gets the current active pattern idx for the StrokeEngine
      */
-    async getActivePatternIndex(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("motion.pattern", timeoutMs)).value;
+    async getActivePatternIndex(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.pattern" })).value;
     }
 
-    async getSpeedBle(timeoutMs?: number): Promise<number> {
+    async getSpeedBle(params: RadApiBaseParams = {}): Promise<number> {
         // I believe this gets the 'simulated' ble speed for when the speed knob limit is enabled?
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("motion.speedBle", timeoutMs)).value;
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.speedBle" })).value;
     }
 
-    async isSpeedKnobAsLimit(timeoutMs?: number): Promise<boolean> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<boolean>>("setting.speedKnobAsLimit", timeoutMs)).value;
+    async isSpeedKnobAsLimit(params: RadApiBaseParams = {}): Promise<boolean> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<boolean>>({ ...params, path: "setting.speedKnobAsLimit" })).value;
     }
 
-    async getLatencyCompensation(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("setting.latencyCompensation", timeoutMs)).value;
+    async getLatencyCompensation(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "setting.latencyCompensation" })).value;
     }
 
-    async getDisplayMetric(timeoutMs?: number): Promise<string> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<string>>("setting.displayMetric", timeoutMs)).value;
+    async getDisplayMetric(params: RadApiBaseParams = {}): Promise<string> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<string>>({ ...params, path: "setting.displayMetric" })).value;
     }
 
-    async getAfterHomingPosition(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("setting.afterHomingPosition", timeoutMs)).value;
+    async getAfterHomingPosition(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "setting.afterHomingPosition" })).value;
     }
 
-    async getMqttPublishFrequency(timeoutMs?: number): Promise<number> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<number>>("setting.mqttPublishFrequency", timeoutMs)).value;
+    async getMqttPublishFrequency(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<number>>({ ...params, path: "setting.mqttPublishFrequency" })).value;
     }
 
-    override async getDeviceName(timeoutMs?: number): Promise<string> {
-        return (await this.readSetting<OssmSchema.OssmReadResult<string>>("setting.deviceName", timeoutMs)).value;
+    override async getDeviceName(params: RadApiBaseParams = {}): Promise<string> {
+        return (await this.readSetting<OssmSchema.OssmReadResult<string>>({ ...params, path: "setting.deviceName" })).value;
     }
 
-    async getFirmwareProvenance(timeoutMs?: number) {
-        const result = await this.readSetting<{ path: string } & OssmSchema.OssmFirmwareProvenance>("device.firmwareProvenance", timeoutMs);
+    async getFirmwareProvenance(params: RadApiBaseParams = {}) {
+        const result = await this.readSetting<{ path: string } & OssmSchema.OssmFirmwareProvenance>({ ...params, path: "device.firmwareProvenance" });
         const { path, ...provenance } = result;
         return provenance;
     }
@@ -187,79 +187,77 @@ export class OssmBleClient extends RadBleApi {
      * Gets the current position of the speed knob
      * @param raw If true, returns the raw sensor value (0-4096), otherwise returns a percentage (0-100)
      */
-    async getSpeedKnob(raw: boolean = false, timeoutMs?: number): Promise<number> {
+    async getSpeedKnob(params: RadApiBaseParams & { raw: boolean } = { raw: false }): Promise<number> {
         /* https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L245
          * https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/board.cpp#L22
          * The OSSM firmware returns the raw sensor value via analogRead and uses a resolution of 12 (0-4096)
          * A percentage value between 0 and 100 is returned if the percent property is requested instead
          */
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>(
-            raw ? "analog.speedKnob" : "analog.speedKnobPercent",
-            timeoutMs
-        )).value;
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params,
+            path: params.raw ? "analog.speedKnob" : "analog.speedKnobPercent"
+        })).value;
     }
 
     /**
      * @param unfiltered If true, returns the unfiltered sensor value, otherwise returns the calibrated sensor value
      * @returns The current motor current as a raw value (0-4096)
      */
-    async getMotorCurrent(unfiltered: boolean = false, timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>(
-            unfiltered ? "analog.motorCurrent" : "analog.motorCurrentFiltered",
-            timeoutMs
-        )).value;
+    async getMotorCurrent(params: RadApiBaseParams & { unfiltered: boolean } = { unfiltered: false }): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params,
+            path: params.unfiltered ? "analog.motorCurrent" : "analog.motorCurrentFiltered",
+        })).value;
     }
 
-    async isHomed(timeoutMs?: number): Promise<boolean> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>("motion.homed", timeoutMs)).value;
+    async isHomed(params: RadApiBaseParams = {}): Promise<boolean> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>({ ...params, path: "motion.homed" })).value;
     }
 
     /**
      * @returns The current position millimeters
      */
-    async getPosition(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>("motion.position", timeoutMs, true)).value;
+    async getPosition(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.position", isPriority: true })).value;
     }
 
-    async getMotorCurrentOffset(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>("analog.currentOffset", timeoutMs)).value;
+    async getMotorCurrentOffset(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "analog.currentOffset" })).value;
     }
 
     /**
      * @returns The measured stroke length in millimeters
      */
-    async getMeasuredStroke(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>("motion.measuredStroke", timeoutMs)).value;
+    async getMeasuredStroke(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.measuredStroke" })).value;
     }
 
     /**
      * @returns The target position in millimeters
      */
-    async getTargetPosition(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>("motion.targetPosition", timeoutMs)).value;
+    async getTargetPosition(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.targetPosition" })).value;
     }
 
-    async getTargetTime(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>("motion.targetTime", timeoutMs)).value;
+    async getTargetTime(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.targetTime" })).value;
     }
 
-    async getStrokeCount(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>("session.strokeCount", timeoutMs)).value;
+    async getStrokeCount(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "session.strokeCount" })).value;
     }
 
     /**
      * @returns The total distance traveled in meters for the current session
      */
-    async getDistance(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>("session.distance", timeoutMs)).value;
+    async getDistance(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "session.distance" })).value;
     }
 
-    async isEmergencyStopEngaged(timeoutMs?: number): Promise<boolean> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>("button.emergencyStop", timeoutMs)).value;
+    async isEmergencyStopEngaged(params: RadApiBaseParams = {}): Promise<boolean> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>({ ...params, path: "button.emergencyStop" })).value;
     }
 
-    async isLimitSwitchEngaged(timeoutMs?: number): Promise<boolean> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>("switch.limit", timeoutMs)).value;
+    async isLimitSwitchEngaged(params: RadApiBaseParams = {}): Promise<boolean> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>({ ...params, path: "switch.limit" })).value;
     }
 
     /**
@@ -267,27 +265,27 @@ export class OssmBleClient extends RadBleApi {
      * @param pin The GPIO pin number to read (0-4)
      * @returns The analogRead value of the pin (0-4096)
      */
-    async readGpioPin(pin: number, timeoutMs?: number): Promise<boolean> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>(`analog.expansion${pin}`, timeoutMs)).value;
+    async readGpioPin(params: RadApiBaseParams & { pin: number }): Promise<boolean> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>({ ...params, path: `analog.expansion${params.pin}` })).value;
     }
 
-    async isEnterButtonPressed(timeoutMs?: number): Promise<boolean> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>("button.enter", timeoutMs)).value;
+    async isEnterButtonPressed(params: RadApiBaseParams = {}): Promise<boolean> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>({ ...params, path: "button.enter" })).value;
     }
 
     /**
      * @returns The position of the motors rotary encoder
      */
-    async getEncoderPosition(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>("encoder.position", timeoutMs)).value;
+    async getEncoderPosition(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "encoder.position" })).value;
     }
 
-    async getBleConnectionCount(timeoutMs?: number): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>("connectivity.bleConnections", timeoutMs)).value;
+    async getBleConnectionCount(params: RadApiBaseParams = {}): Promise<number> {
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "connectivity.bleConnections" })).value;
     }
 
-    async getWifiStatus(timeoutMs?: number): Promise<OssmSchema.OssmWifiStatus> {
-        const readResult = await this.readSensor<{ path: string } & OssmSchema.OssmWifiStatus>("connectivity.wifi", timeoutMs);
+    async getWifiStatus(params: RadApiBaseParams = {}): Promise<OssmSchema.OssmWifiStatus> {
+        const readResult = await this.readSensor<{ path: string } & OssmSchema.OssmWifiStatus>({ ...params, path: "connectivity.wifi" });
         // Remove the path property from the result before returning
         const { path, ...wifiStatus } = readResult;
         return wifiStatus;
@@ -297,27 +295,15 @@ export class OssmBleClient extends RadBleApi {
     // #region setting.write
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L309
 
-    /** Sets the pin to output mode and writes the given value */
-    async setGpioPin(pin: number, value: number, timeoutMs?: number): Promise<void>;
-    /** Sets a pin to input mode */
-    async setGpioPin(pin: number, mode: Extract<OssmSchema.OssmGpioPinMode, "input" | "inputPullup">, timeoutMs?: number): Promise<void>;
-    /** @deprecated Use the overloaded methods instead */
-    async setGpioPin(pin: number, modeOrValue: OssmSchema.OssmGpioPinMode | number, timeoutMs?: number): Promise<void> {
-        let finalMode: OssmSchema.OssmGpioPinMode;
-        let finalValue: number | undefined;
-
-        if (typeof modeOrValue === "number") {
-            finalMode = OssmSchema.OssmGpioPinMode.Output;
-            finalValue = modeOrValue;
-        } else {
-            finalMode = modeOrValue;
-            finalValue = undefined;
-        }
-
-        await this.writeSetting(`analog.expansion${pin}`, {
-            mode: finalMode,
-            value: finalValue
-        }, timeoutMs);
+    async setGpioPin(params: RadApiBaseParams & { pin: number, mode: OssmSchema.OssmGpioPinMode, value: number }): Promise<void> {
+        await this.writeSetting({
+            ...params,
+            path: `analog.expansion${params.pin}`,
+            args: {
+                mode: params.mode,
+                value: params.value
+            }
+        });
     }
 
     /**
@@ -328,130 +314,151 @@ export class OssmBleClient extends RadBleApi {
      * **When** `false`: BLE speed commands (0-100) are used directly as the speed value  
      * Example: BLE command `set:speed:80` → Effective speed = 80%
      */
-    async setSpeedKnobAsLimit(value: boolean, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("setting.speedKnobAsLimit", { value }, timeoutMs);
+    async setSpeedKnobAsLimit(params: RadApiBaseParams & { value: boolean }): Promise<void> {
+        await this.writeSetting({ ...params, path: "setting.speedKnobAsLimit", args: { value: params.value }});
     }
 
-    async setLatencyCompensation(value: boolean, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("setting.latencyCompensation", { value }, timeoutMs);
+    async setLatencyCompensation(params: RadApiBaseParams & { value: boolean }): Promise<void> {
+        await this.writeSetting({ ...params, path: "setting.latencyCompensation", args: { value: params.value }});
     }
 
-    async setDisplayMetric(value: boolean, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("setting.displayMetric", { value }, timeoutMs);
+    async setDisplayMetric(params: RadApiBaseParams & { value: boolean }): Promise<void> {
+        await this.writeSetting({ ...params, path: "setting.displayMetric", args: { value: params.value }});
     }
 
-    async setAfterHomingPosition(value: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("setting.afterHomingPosition", { value }, timeoutMs);
+    async setAfterHomingPosition(params: RadApiBaseParams & { value: number }): Promise<void> {
+        await this.writeSetting({ ...params, path: "setting.afterHomingPosition", args: { value: params.value }});
     }
 
-    async setMqttPublishFrequency(value: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("setting.mqttPublishFrequency", { value }, timeoutMs);
+    async setMqttPublishFrequency(params: RadApiBaseParams & { value: number }): Promise<void> {
+        await this.writeSetting({ ...params, path: "setting.mqttPublishFrequency", args: { value: params.value }});
     }
 
-    async setSpeedBle(value: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("motion.speedBle", { value }, timeoutMs);
+    async setSpeedBle(params: RadApiBaseParams & { value: number }): Promise<void> {
+        await this.writeSetting({ ...params, path: "motion.speedBle", args: { value: params.value }});
     }
 
     // override async setDeviceName(name: string, timeoutMs?: number): Promise<void> {
-    //     await this.writeSetting("setting.deviceName", { value: name }, timeoutMs);
+    //     await this.writeSetting({ ...params, path: "setting.deviceName", { value: name }, timeoutMs);
     // }
 
     /**
      * Sets the active pattern for the StrokeEngine
      * @param patternIdx The index of the pattern to set. See {@link}
      */
-    async setPattern(patternIdx: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("motion.pattern", { value: patternIdx }, timeoutMs);
+    async setPattern(params: RadApiBaseParams & { patternIdx: number }): Promise<void> {
+        await this.writeSetting({ ...params, path: "motion.pattern", args: { value: params.patternIdx }});
     }
 
     /** @param value The speed value between 0 and 100 */
-    async setSpeed(value: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("motion.speed", { value }, timeoutMs, true);
+    async setSpeed(params: RadApiBaseParams & { value: number }): Promise<void> {
+        await this.writeSetting({ ...params, path: "motion.speed", args: { value: params.value }, isPriority: true });
     }
 
     /** @param value The stroke length value between 0 and 100 */
-    async setStroke(value: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("motion.stroke", { value }, timeoutMs);
+    async setStroke(params: RadApiBaseParams & { value: number }): Promise<void> {
+        await this.writeSetting({ ...params, path: "motion.stroke", args: { value: params.value }});
     }
 
     /** @param value The depth value between 0 and 100 */
-    async setDepth(value: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("motion.depth", { value }, timeoutMs);
+    async setDepth(params: RadApiBaseParams & { value: number }): Promise<void> {
+        await this.writeSetting({ ...params, path: "motion.depth", args: { value: params.value }});
     }
 
     /** @param value The sensation value between 0 and 100 */
-    async setSensation(value: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("motion.sensation", { value }, timeoutMs);
+    async setSensation(params: RadApiBaseParams & { value: number }): Promise<void> {
+        await this.writeSetting({ ...params, path: "motion.sensation", args: { value: params.value }});
     }
 
     /** @param value The buffer value between 0 and 100 */
-    async setBuffer(value: number, timeoutMs?: number): Promise<void> {
-        await this.writeSetting("motion.buffer", { value }, timeoutMs);
+    async setBuffer(params: RadApiBaseParams & { value: number }): Promise<void> {
+        await this.writeSetting({ ...params, path: "motion.buffer", args: { value: params.value }});
     }
     // #endregion
 
     // #region [input|event].emit
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L431
 
-    async #emitEvent(path: string, args?: Record<string, unknown>, timeoutMs?: number, isPriority?: boolean): Promise<void> {
-        this._requireLease();
-        await this.send({ op: "event.emit", path, args }, this.lease!, timeoutMs, isPriority);
+    async #emitEvent(params: RadApiBaseParams & { path: string, args?: Record<string, unknown> }): Promise<void> {
+        await this.send({ ...params, req: { op: "event.emit", path: params.path, args: params.args }, lease: this._requireLease() });
     }
 
-    async emitButtonEvent(clickType: OssmSchema.OssmButtonClickType, timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("button.enter", { event: clickType }, timeoutMs, true);
+    async emitButtonEvent(params: RadApiBaseParams & { clickType: OssmSchema.OssmButtonClickType }): Promise<void> {
+        await this.#emitEvent({ ...params, path: "button.enter", args: { event: params.clickType }});
     }
 
-    async emitReturnToMenuEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.returnToMenu", undefined, timeoutMs, true);
+    async emitReturnToMenuEvent(params: RadApiBaseParams = {}): Promise<void> {
+        await this.#emitEvent({ ...params, path: "event.returnToMenu", isPriority: true });
     }
 
-    async emitDoneEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.done", undefined, timeoutMs);
+    async emitDoneEvent(params: RadApiBaseParams = {}): Promise<void> {
+        await this.#emitEvent({ ...params, path: "event.done" });
     }
 
-    async emitErrorEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.error", undefined, timeoutMs, true);
+    async emitErrorEvent(params: RadApiBaseParams = {}): Promise<void> {
+        await this.#emitEvent({ ...params, path: "event.error", isPriority: true });
     }
 
-    async emitGoHomeEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.home", undefined, timeoutMs, true);
+    async emitGoHomeEvent(params: RadApiBaseParams = {}): Promise<void> {
+        await this.#emitEvent({ ...params, path: "event.home", isPriority: true });
     }
 
-    async emitEmergencyStopEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.emergencyStop", undefined, timeoutMs, true);
+    async emitEmergencyStopEvent(params: RadApiBaseParams = {}): Promise<void> {
+        await this.#emitEvent({ ...params, path: "event.emergencyStop", isPriority: true });
     }
 
-    async emitUpdateUnavailableEvent(timeoutMs?: number): Promise<void> {
-        await this.#emitEvent("event.updateUnavailable", undefined, timeoutMs);
+    async emitUpdateUnavailableEvent(params: RadApiBaseParams = {}): Promise<void> {
+        await this.#emitEvent({ ...params, path: "event.updateUnavailable", isPriority: true });
     }
     // #endregion
 
     // #region target.set
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L465
 
-    async navigateTo(menu: OssmSchema.OssmMenu, timeoutMs?: number): Promise<void> {
-        this._requireLease();
-        const result = await this.send<{ deferred?: true }>({ op: "target.set", path: `target.${menu}` }, this.lease!, timeoutMs, true);
+    async navigateTo(params: RadApiBaseParams & { menu: OssmSchema.OssmMenu }): Promise<void> {
+        const result = await this.send<{ deferred?: true }>({
+            ...params,
+            req: {
+                op: "target.set",
+                path: `target.${params.menu}`
+            },
+            lease: this._requireLease(),
+            isPriority: true
+        });
         // TODO: If the task is deferred figure out how to wait for it to complete
     }
 
     /** Runs the calibration task on the machine */
-    async homeRail(timeoutMs?: number): Promise<void> {
-        this._requireLease();
-        this.send({ op: "target.set", path: "target.home" }, this.lease!, timeoutMs, true);
+    async homeRail(params: RadApiBaseParams = {}): Promise<void> {
+        await this.send({
+            ...params,
+            req: {
+                op: "target.set",
+                path: "target.home"
+            },
+            lease: this._requireLease(),
+            isPriority: true
+        });
     }
 
     /**
      * Emergency stops the device
      * @note This aborts all other pending and processing API calls
      */
-    async emergencyStop(timeoutMs?: number): Promise<void> {
-        this._requireLease(); // I find it kinda stupid how this command requires a lease lol
+    async emergencyStop(params: RadApiBaseParams = {}): Promise<void> {
+        // I find it kinda stupid how this command requires a lease lol
         // Clear the queue for this call since it is a safety function and we shouldn't wait on other tasks to complete, even if we prepend this task to the queue
         this._taskQueue.clearQueue();
         // Set the isPriority parameter to true to guarantee that this function is called next
-        this.send({ op: "target.set", path: "target.emergencyStop" }, this.lease!, timeoutMs, true);
+        await this.send({
+            ...params,
+            req: {
+                op: "target.set",
+                path: "target.emergencyStop"
+            },
+            lease: this._requireLease(),
+            isPriority: true
+        });
     }
 
     /**
@@ -459,16 +466,20 @@ export class OssmBleClient extends RadBleApi {
      * @param durationMs The time in milliseconds it takes to transition to the new position
      * @note Requires the device to be in {@link OssmSchema.OssmMenu.Streaming} mode
      */
-    async streamPosition(position: number, durationMs: number, timeoutMs?: number): Promise<void> {
-        this._requireLease();
-        this.send({
-            op: "target.set",
-            path: "motion.position",
-            args: {
-                value: position,
-                durationMs
-            }
-        }, this.lease!, timeoutMs, true);
+    async streamPosition(params: RadApiBaseParams & { position: number, durationMs: number }): Promise<void> {
+        await this.send({
+            ...params,
+            req: {
+                op: "target.set",
+                path: "motion.position",
+                args: {
+                    value: params.position,
+                    durationMs: params.durationMs
+                }
+            },
+            lease: this._requireLease(),
+            isPriority: true
+        });
     }
     // #endregion
 
@@ -480,13 +491,16 @@ export class OssmBleClient extends RadBleApi {
      * @param value The value to write to the encoder
      * @param isAbsolute When 'true' the value is written as-is to the encoder. When 'false' the value is added to the current encoder value
      */
-    async encoderWrite(value: number, isAbsolute: boolean, timeoutMs?: number) {
-        this._requireLease();
+    async encoderWrite(params: RadApiBaseParams & { value: number, isAbsolute: boolean }) {
         await this.send({
-            op: isAbsolute ? "encoder.set" : "encoder.delta",
-            path: "encoder.main",
-            args: isAbsolute ? { value } : { delta: value }
-        }, undefined, timeoutMs);
+            ...params,
+            req: {
+                op: params.isAbsolute ? "encoder.set" : "encoder.delta",
+                path: "encoder.main",
+                args: params.isAbsolute ? { value: params.value } : { delta: params.value }
+            },
+            lease: this._requireLease()
+        });
     }
     // #endregion
 
@@ -500,57 +514,56 @@ export class OssmBleClient extends RadBleApi {
      * @param b The blue component of the color (0-255)
      * @note The firmware seems to reset this value after a couple hundred milliseconds
      */
-    async setLed(r: number, g: number, b: number, timeoutMs?: number): Promise<void> {
-        this._requireLease();
+    async setLed(params: RadApiBaseParams & { r: number, g: number, b: number }): Promise<void> {
         // Range validation will be left to the firmware
-        await this.send({ op: "indicator.set", path: "indicator.status", args: { r, g, b } }, this.lease!, timeoutMs);
+        await this.send({
+            ...params,
+            req: {
+                op: "indicator.set",
+                path: "indicator.status",
+                args: {
+                    r: params.r,
+                    g: params.g,
+                    b: params.b
+                }
+            },
+            lease: this._requireLease()
+        });
     }
     // #endregion
 
     // #region Surface streaming
-    override async startStream(
-        surface: OssmSchema.OssmSurface,
-        rateHz?: number,
-        timeoutMs?: number
-    ): Promise<RadSchema.RadStreamResult> {
-        // Only map if 'surface' is a valid key in OSSM_SURFACE_STREAM_MAP (super calls out to this so we can't blindly get the key from the map)
-        const streamTarget = surface in OSSM_SURFACE_STREAM_MAP
-            ? OSSM_SURFACE_STREAM_MAP[surface as OssmSchema.OssmSurface]
-            : surface;
-        return super.startStream(streamTarget, rateHz, timeoutMs);
+    /**
+     * Starts a stream for a given surface from the device
+     * @param surface Surface to stream
+     * @param rateHz Rate in Hz to stream at. If omitted, the device will use its default rate for the stream
+     * @requires A valid lease token
+     */
+    override async startStream(params: RadApiBaseParams & { surface: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
+    /** @deprecated Use one of the `surface` overload instead */
+    override async startStream(params: RadApiBaseParams & { path: string, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
+    /** @deprecated Use one of the `surface` overload instead */
+    override async startStream(params: RadApiBaseParams & { path: string, surface: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult> {
+        return super.startStream({
+            ...params,
+            // Overload jank fix. Only map if 'surface' is a valid key in OSSM_SURFACE_STREAM_MAP (super calls out to this so we can't blindly get the key from the map)
+            path: params.path ?? OSSM_SURFACE_STREAM_MAP[params.surface as OssmSchema.OssmSurface]
+        });
     }
 
-    override async updateStream(rateHz?: number, timeoutMs?: number): Promise<RadSchema.RadStreamResult>;
-    override async updateStream(surface?: OssmSchema.OssmSurface, rateHz?: number, timeoutMs?: number): Promise<RadSchema.RadStreamResult>;
-    override async updateStream(
-        surfaceOrRateHz?: OssmSchema.OssmSurface | number,
-        rateHzOrTimeoutMs?: number,
-        timeoutMs?: number
-    ): Promise<RadSchema.RadStreamResult> {
-        let path: string | undefined;
-        let rateHz: number | undefined;
-        let timeout: number | undefined;
-
-        if (typeof surfaceOrRateHz === "number") {
-            // Called as updateStream(rateHz, timeoutMs)
-            path = undefined;
-            rateHz = surfaceOrRateHz;
-            timeout = rateHzOrTimeoutMs;
-        } else if (surfaceOrRateHz !== undefined) {
-            // Called as updateStream(surface, rateHz, timeoutMs)
-            path = surfaceOrRateHz in OSSM_SURFACE_STREAM_MAP
-                ? OSSM_SURFACE_STREAM_MAP[surfaceOrRateHz as OssmSchema.OssmSurface]
-                : surfaceOrRateHz;
-            rateHz = rateHzOrTimeoutMs;
-            timeout = timeoutMs;
-        } else {
-            // Called as updateStream()
-            path = undefined;
-            rateHz = rateHzOrTimeoutMs;
-            timeout = timeoutMs;
-        }
-
-        return super.updateStream(path, rateHz, timeout);
+    // God I don't like how overloads work in JS
+    override async updateStream(params: RadApiBaseParams & { surface?: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
+    /** @deprecated Use one of the `surface` overload instead */
+    override async updateStream(params: RadApiBaseParams & { path: string, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
+    /** @deprecated Use one of the `surface` overload instead */
+    override async updateStream(params: RadApiBaseParams & { path: string, surface?: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult> {
+        if (!params.path && !params.surface && !params.rateHz)
+            throw new DOMException("Either surface or rateHz must be provided", "SyntaxError");
+        return super.updateStream({
+            ...params,
+            // Overload jank fix. Only map if 'surface' is a valid key in OSSM_SURFACE_STREAM_MAP (super calls out to this so we can't blindly get the key from the map)
+            path: params.path ?? OSSM_SURFACE_STREAM_MAP[params.surface as OssmSchema.OssmSurface]
+        });
     }
 
     async #onStream(t: RadTelemetry): Promise<void> {
@@ -567,48 +580,48 @@ export class OssmBleClient extends RadBleApi {
      * @param oldState The old state to compare to determine the safe order to apply the new parameters.
      * @requires A valid lease
      */
-    async setCommonPlayParameters(newParams: Partial<OssmCommonPlayParameters>, oldState: Partial<OssmCommonPlayParameters> = {}, timeoutMs?: number): Promise<void> {
+    async setCommonPlayParameters(params: RadApiBaseParams & {
+        newState: Partial<OssmCommonPlayParameters>
+        oldState?: Partial<OssmCommonPlayParameters>
+    }): Promise<void> {
         // Based on old code from: https://github.com/ReadieFur/OSSM-BLE-Web/blob/8779560bce4cade1eedafa5acd9140db0bc305a0/src/ossmBle.ts#L740-L810
 
-        this._requireLease();
-        
-        const deadline = timeoutMs ? Date.now() + timeoutMs : undefined;
-        const getRemainingTimeout = () => deadline ? Math.max(0, deadline - Date.now()) : undefined;
+        if (!params.oldState) params.oldState = {};
 
         // I decided to not fetch the current state from the device or cache here since it adds too much delay
 
-        const shouldWritePattern = newParams.pattern !== undefined && newParams.pattern !== oldState.pattern;
-        const shouldWriteSpeed = newParams.speed !== undefined && newParams.speed !== oldState.speed;
-        const shouldWriteDepth = newParams.depth !== undefined && newParams.depth !== oldState.depth;
-        const shouldWriteStroke = newParams.stroke !== undefined && newParams.stroke !== oldState.stroke;
-        const shouldWriteSensation = newParams.sensation !== undefined && newParams.sensation !== oldState.sensation;
+        const shouldWritePattern = params.newState.pattern !== undefined && params.newState.pattern !== params.oldState.pattern;
+        const shouldWriteSpeed = params.newState.speed !== undefined && params.newState.speed !== params.oldState.speed;
+        const shouldWriteDepth = params.newState.depth !== undefined && params.newState.depth !== params.oldState.depth;
+        const shouldWriteStroke = params.newState.stroke !== undefined && params.newState.stroke !== params.oldState.stroke;
+        const shouldWriteSensation = params.newState.sensation !== undefined && params.newState.sensation !== params.oldState.sensation;
 
         // Fast exit if no parameters changed
         if (!shouldWritePattern && !shouldWriteSpeed && !shouldWriteDepth && !shouldWriteStroke && !shouldWriteSensation)
             return;
 
         // Synthesize worst-case effective old values for missing parameters (0 = conservative baseline)
-        const effectiveOldSpeed = oldState.speed ?? 0;
-        const effectiveOldDepth = oldState.depth ?? 0;
-        const effectiveOldStroke = oldState.stroke ?? 0;
+        const effectiveOldSpeed = params.oldState.speed ?? 0;
+        const effectiveOldDepth = params.oldState.depth ?? 0;
+        const effectiveOldStroke = params.oldState.stroke ?? 0;
 
-        const targetSpeed = newParams.speed ?? effectiveOldSpeed;
-        const targetDepth = newParams.depth ?? effectiveOldDepth;
-        const targetStroke = newParams.stroke ?? effectiveOldStroke;
+        const targetSpeed = params.newState.speed ?? effectiveOldSpeed;
+        const targetDepth = params.newState.depth ?? effectiveOldDepth;
+        const targetStroke = params.newState.stroke ?? effectiveOldStroke;
 
         // Function delegates
         const applyPattern = async () => {
-            if (shouldWritePattern) await this.setPattern(newParams.pattern!, getRemainingTimeout());
+            if (shouldWritePattern) await this.setPattern({ ...params, patternIdx: params.newState.pattern! });
         };
         const applySpeed = async () => {
-            if (shouldWriteSpeed) await this.setSpeed(newParams.speed!, getRemainingTimeout());
+            if (shouldWriteSpeed) await this.setSpeed({ ...params, value: params.newState.speed! });
         };
         const applyDepthAndStroke = async () => {
-            if (shouldWriteDepth) await this.setDepth(newParams.depth!, getRemainingTimeout());
-            if (shouldWriteStroke) await this.setStroke(newParams.stroke!, getRemainingTimeout());
+            if (shouldWriteDepth) await this.setDepth({ ...params, value: params.newState.depth! });
+            if (shouldWriteStroke) await this.setStroke({ ...params, value: params.newState.stroke! });
         };
         const applySensation = async () => {
-            if (shouldWriteSensation) await this.setSensation(newParams.sensation!, getRemainingTimeout());
+            if (shouldWriteSensation) await this.setSensation({ ...params, value: params.newState.sensation! });
         };
 
         // Calculate offsets used to determine the safe order to apply the changes

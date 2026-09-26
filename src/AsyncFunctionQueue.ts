@@ -1,8 +1,10 @@
+import { CancellationToken, CancellationTokenRegistration, ICancellationToken } from "./CancellationToken";
+
 type QueueItem = {
     signature: Function;
     execute: () => Promise<void>;
     reject: (reason: Error) => void;
-    timer?: number;
+    ctRegistration?: CancellationTokenRegistration;
 };
 
 export class AsyncFunctionQueue {
@@ -19,9 +21,9 @@ export class AsyncFunctionQueue {
     /**
      * Enqueues an asynchronous function for sequential execution.
      */
-    async enqueue<T>(fn: () => Promise<T>, timeoutMs?: number): Promise<T> {
+    async enqueue<T>(fn: () => Promise<T>, ct: ICancellationToken = CancellationToken.None): Promise<T> {
         return new Promise<T>((resolve, reject) => {
-            this.#queue.push(this.#createQueueItem(fn, resolve, reject, timeoutMs));
+            this.#queue.push(this.#createQueueItem(fn, resolve, reject, ct));
             this.#processQueue();
         });
     }
@@ -29,9 +31,9 @@ export class AsyncFunctionQueue {
     /**
      * Prepends an asynchronous function to the front of the queue for sequential execution.
      */
-    async prepend<T>(fn: () => Promise<T>, timeoutMs?: number): Promise<T> {
+    async prepend<T>(fn: () => Promise<T>, ct: ICancellationToken = CancellationToken.None): Promise<T> {
         return new Promise<T>((resolve, reject) => {
-            this.#queue.unshift(this.#createQueueItem(fn, resolve, reject, timeoutMs));
+            this.#queue.unshift(this.#createQueueItem(fn, resolve, reject, ct));
             this.#processQueue();
         });
     }
@@ -45,7 +47,7 @@ export class AsyncFunctionQueue {
         targetFn: Function,
         newFn: () => Promise<T>,
         reason?: Error | string,
-        timeoutMs?: number
+        ct: ICancellationToken = CancellationToken.None
     ): Promise<T> {
         const index = this.#queue.findIndex(item => item.signature === targetFn);
 
@@ -63,7 +65,7 @@ export class AsyncFunctionQueue {
 
         // Insert the new task at the exact same queue position
         return new Promise<T>((resolve, reject) => {
-            const queueItem = this.#createQueueItem(newFn, resolve, reject, timeoutMs);
+            const queueItem = this.#createQueueItem(newFn, resolve, reject, ct);
             this.#queue.splice(index, 0, queueItem);
         });
     }
@@ -75,10 +77,10 @@ export class AsyncFunctionQueue {
         targetFn: Function,
         newFn: () => Promise<T>,
         reason?: Error | string,
-        timeoutMs?: number
+        newCt: ICancellationToken = CancellationToken.None
     ) {
-        try { return this.replace(targetFn, newFn, reason, timeoutMs); }
-        catch { return this.enqueue(newFn, timeoutMs); }
+        try { return this.replace(targetFn, newFn, reason, newCt); }
+        catch { return this.enqueue(newFn, newCt); }
     }
 
     /**
@@ -122,7 +124,7 @@ export class AsyncFunctionQueue {
         fn: () => Promise<T>,
         resolve: (value: T | PromiseLike<T>) => void,
         reject: (reason: Error) => void,
-        timeoutMs?: number
+        ct: ICancellationToken
     ): QueueItem {
         const queueItem: QueueItem = {
             signature: fn,
@@ -142,23 +144,22 @@ export class AsyncFunctionQueue {
             }
         };
 
-        if (timeoutMs !== undefined && timeoutMs > 0) {
-            queueItem.timer = window.setTimeout(() => {
-                // Remove the item if it is still in the queue since we have timed out
+        if (ct !== CancellationToken.None) {
+            queueItem.ctRegistration = ct.register((reason) => {
                 const index = this.#queue.indexOf(queueItem);
                 if (index !== -1)
                     this.#queue.splice(index, 1);
-                queueItem.reject(new DOMException(`Task timed out after ${timeoutMs}ms`, "TimeoutError"));
-            }, timeoutMs);
+                queueItem.reject(new DOMException(reason ?? "The operation was cancelled", "AbortError"));
+            });
         }
 
         return queueItem;
     }
 
     #clearItemTimer(item: QueueItem): void {
-        if (item.timer !== undefined) {
-            window.clearTimeout(item.timer);
-            item.timer = undefined;
+        if (item.ctRegistration) {
+            item.ctRegistration.unregister();
+            item.ctRegistration = undefined;
         }
     }
 

@@ -4,6 +4,7 @@ import * as Schema from "./RadProtocolSchema";
 import crc32 from "crc-32";
 import { SingleEvent, SingleEventSource } from "./SingleEvent";
 import { AsyncFunctionQueue } from "./AsyncFunctionQueue";
+import { CancellationToken, CancellationTokenRegistration, CancellationTokenSource, ICancellationToken } from "./CancellationToken";
 
 // #region Rad ble api metadata
 // Pulled from https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json
@@ -80,8 +81,18 @@ interface ResolveReject<T = void> {
     reject: (e: Error) => void;
 }
 
-interface ResolveRejectTimer<T = void> extends ResolveReject<T> {
-    timer: number;
+export interface RadApiBaseParams {
+    isPriority?: boolean;
+    ct?: ICancellationToken;
+}
+
+interface SendParams extends RadApiBaseParams {
+    req: Omit<Schema.RadRequest, "v" | "id" | "lease">,
+    lease?: RadLease | number
+}
+
+interface SnapshotPendingHandler<T = unknown> extends ResolveReject<T> {
+    ctRegistration: CancellationTokenRegistration;
 }
 
 /**
@@ -94,13 +105,13 @@ export class RadBleApi extends BleConnectionHandler {
     #radCharacteristicGattMap: Map<BluetoothRemoteGATTCharacteristic, RadCharacteristicKey> = new Map();
     /** A map of all the requests that are currently being processed */
     #defaultTimeoutMs = 6000;
-    #pendingRequests = new Map<number, ResolveRejectTimer<Schema.RadResponse>>()
+    #pendingRequests = new Map<number, ResolveReject<Schema.RadResponse>>()
     #activeStream: Schema.RadStreamResult | null = null;
     readonly #pendingSnapshots = {
         /** Holds the stream that the snapshot manager is currently waiting on */
         activeStream: null as { id: number; surface: string; } | null,
         /** Keeps track of pending snapshot requests */
-        pendingSurfaces: new Map<string, Set<ResolveRejectTimer<unknown>>>(),
+        pendingSurfaces: new Map<string, Set<SnapshotPendingHandler>>(),
         /** Keeps track of the function that will activate a stream for a given surface */
         streamActivators: new Map<string, {
             expiresAt: number,
@@ -121,10 +132,10 @@ export class RadBleApi extends BleConnectionHandler {
     lease: RadLease | null = null;
     get onRadTelemetry(): Readonly<RadTelemetryObjType<false>> { return this._onRadTelemetry; }
     get activeStream(): Schema.RadStreamResult | null { return this.#activeStream; }
-    get defaultTimeoutMs() { return this.#defaultTimeoutMs; }
+    get defaultTimeoutMs(): number | null { return this.#defaultTimeoutMs == -1 ? null : this.#defaultTimeoutMs; }
     set defaultTimeoutMs(value: number) {
-        if (value <= 0 || Number.isNaN(value))
-            throw new DOMException("Value must be a positive integer");
+        if (value < -1 || Number.isNaN(value))
+            throw new DOMException("Value must be a positive integer or -1");
         this.#defaultTimeoutMs = value;
     }
 
@@ -234,20 +245,13 @@ export class RadBleApi extends BleConnectionHandler {
 
         const disconnectError = new DOMException("Device disconnected", "NetworkError");
 
-        for (const request of this.#pendingRequests.values()) {
-            if (!Number.isNaN(request.timer))
-                window.clearTimeout(request.timer);
+        for (const request of this.#pendingRequests.values())
             request.reject(disconnectError);
-        }
         this.#pendingRequests.clear();
 
-        for (const pendingSet of this.#pendingSnapshots.pendingSurfaces.values()) {
-            for (const handler of pendingSet) {
-                if (!Number.isNaN(handler.timer))
-                    window.clearTimeout(handler.timer);
+        for (const pendingSet of this.#pendingSnapshots.pendingSurfaces.values())
+            for (const handler of pendingSet)
                 handler.reject(disconnectError);
-            }
-        }
         this.#pendingSnapshots.pendingSurfaces.clear();
 
         for (const activator of this.#pendingSnapshots.streamActivators.values())
@@ -264,18 +268,14 @@ export class RadBleApi extends BleConnectionHandler {
      * @param timeoutMs Optional timeout in milliseconds to wait for a response before rejecting. Defaults to {@link defaultTimeoutMs}
      * @returns A promise that resolves to {@link RadResponse} containing the response data
      */
-    async send<T = unknown>(
-        req: Omit<Schema.RadRequest, "v" | "id" | "lease">,
-        lease?: number | RadLease,
-        timeoutMs?: number,
-        isPriority: boolean = false
-    ): Promise<Schema.RadResponse<T>> {
-        if (!timeoutMs) timeoutMs = this.defaultTimeoutMs;
+    async send<T = unknown>(params: SendParams): Promise<Schema.RadResponse<T>> {
+        const cts = !params.ct && this.defaultTimeoutMs ? CancellationTokenSource.createWithTimeout(this.defaultTimeoutMs) : undefined;
+        const ct = params.ct ?? cts?.token ?? CancellationToken.None;
 
         let id: number;
         do { id = crypto.getRandomValues(new Uint32Array(1))[0]; }
         while (this.#pendingRequests.has(id));
-        const request: Schema.RadRequest = { v: 1, id, ...req };
+        const request: Schema.RadRequest = { ...params.req, v: 1, id };
 
         let payload: () => BufferSource;
         /* If a lease is specified and it is a typeof RadLease then don't stringify the request until it is made
@@ -286,50 +286,55 @@ export class RadBleApi extends BleConnectionHandler {
          * If the lease isn't specified or it is a plain number then encode it before queuing the ble action
          * We do this because it saves cycles inside the queue
          */
-        if (lease instanceof RadLease) {
-            if (lease.isExpired)
+        if (params.lease instanceof RadLease) {
+            if (params.lease.isExpired)
                 throw new DOMException("Cannot send RAD request with expired lease", "InvalidStateError");
-            request.lease = lease.token!;
+            request.lease = params.lease.token!;
             payload = () => this._enc.encode(JSON.stringify(request));
         } else {
-            request.lease = lease;
+            request.lease = params.lease;
             const payloadBuf = this._enc.encode(JSON.stringify(request));
             payload = () => payloadBuf;
         }
 
         // Request gets resolved inside #onRequest
-        const result = await new Promise<Schema.RadResponse<T>>((resolve, reject) => {
-            const timer = window.setTimeout(() => {
-                this.#pendingRequests.delete(id);
-                reject(new DOMException(`RAD request timeout (id=${id}, op=${req.op})`, "TimeoutError"));
-            }, timeoutMs);
-
-            this.#pendingRequests.set(id, { resolve: resolve as any, reject, timer });
-
-            const func = async () => {
-                // Check that the request hasn't been aborted
-                if (!this.#pendingRequests.has(id)) return;
-
-                // this._debugLog(`Sending RAD request:`, { lease, ...request });
-
-                // Ensure the state is valid to make the ble call
-                this._requireRadCharacteristic("request");
-                await this._radService.request!.writeValueWithoutResponse(payload());
-
-            };
-            const queuedItem = isPriority
-                ? this._taskQueue.prepend(func, timeoutMs)
-                : this._taskQueue.enqueue(func, timeoutMs);
-            queuedItem.catch(err => {
-                window.clearTimeout(timer);
-                this.#pendingRequests.delete(id);
-                reject(err);
+        let ctRegistration: CancellationTokenRegistration | undefined;
+        try {
+            const result = await new Promise<Schema.RadResponse<T>>((resolve, reject) => {
+                ctRegistration = ct.register((reason) => {
+                    this.#pendingRequests.delete(id);
+                    reject(new DOMException(reason ?? `RAD request timeout (id=${id}, op=${params.req.op})`, "AbortError"));
+                });
+    
+                this.#pendingRequests.set(id, { resolve: resolve as any, reject });
+    
+                const func = async () => {
+                    // Check that the request hasn't been aborted
+                    if (!this.#pendingRequests.has(id)) return;
+    
+                    if (this.debug)
+                        console.log(`[${this._device.id}] Sending RAD request:`, { lease: params.lease, ...request });
+    
+                    // Ensure the state is valid to make the ble call
+                    this._requireRadCharacteristic("request");
+                    await this._radService.request!.writeValueWithoutResponse(payload());
+    
+                };
+                const queuedItem = params.isPriority
+                    ? this._taskQueue.prepend(func, ct)
+                    : this._taskQueue.enqueue(func, ct);
+                queuedItem.catch(reject);
             });
-        });
-
-        if (!result.ok || result.stage === "failed")
-            throw new DOMException(`RAD request failed (id=${id}, op=${req.op}): ${result.code ?? "unknown"} - ${result.message ?? "no message"}`, "Error");
-        return result;
+    
+            if (!result.ok || result.stage === "failed")
+                throw new DOMException(`RAD request failed (id=${id}, op=${params.req.op}): ${result.code ?? "unknown"} - ${result.message ?? "no message"}`, "Error");
+            return result;
+        } finally {
+            // Clean up resources
+            ctRegistration?.unregister();
+            cts?.dispose();
+            this.#pendingRequests.delete(id);
+        }
     }
 
     /**
@@ -339,17 +344,11 @@ export class RadBleApi extends BleConnectionHandler {
      * @param timeoutMs The timeout in milliseconds, if any
      * @returns A promise resolving to the result of the request
      */
-    async sendWithResult<T = unknown>(
-        req: Omit<Schema.RadRequest, "v" | "id" | "lease">,
-        lease?: number | RadLease,
-        timeoutMs?: number,
-        isPriority?: boolean
-    ): Promise<T> {
-        return this.send<T>(req, lease, timeoutMs, isPriority).then(res => {
-            if (!res.result)
-                throw new DOMException("RAD request returned no result", "DataError");
-            return res.result;
-        });
+    async sendWithResult<T = unknown>(params: SendParams): Promise<T> {
+        const res = await this.send<T>(params);
+        if (!res.result)
+            throw new DOMException("RAD request returned no result", "DataError");
+        return res.result;
     }
 
     #handleIncomingTelemetry(event: Event) {
@@ -439,7 +438,9 @@ export class RadBleApi extends BleConnectionHandler {
         * or a lot of them point to the same method handler inside the firmware (so we can just reuse request/response)
         */
 
-        this._debugLog("RAD response received:", msg);
+        if (this.debug)
+            console.log(`[${this._device.id}] RAD response received:`, msg);
+            
         if (!this.#pendingRequests.has(msg.id)) return false;
 
         const p = this.#pendingRequests.get(msg.id)!;
@@ -448,14 +449,10 @@ export class RadBleApi extends BleConnectionHandler {
         // RAD can emit accepted + completed; only resolve on terminal stages
         switch (msg.stage) {
             case "failed": {
-                window.clearTimeout(p.timer);
-                this.#pendingRequests.delete(msg.id);
                 p.reject(new DOMException(`RAD request failed (id=${msg.id}, op=${msg.stage}): ${msg.code ?? "unknown"} - ${msg.message ?? "no message"}`, "Error"));
                 return true;
             }
             case "completed": {
-                window.clearTimeout(p.timer);
-                this.#pendingRequests.delete(msg.id);
                 p.resolve(msg);
                 return true;
             }
@@ -487,12 +484,13 @@ export class RadBleApi extends BleConnectionHandler {
         // Extract all handlers and immediately clean up state so other pending requests can continue
         const handlers = Array.from(pendingSet);
         this.#pendingSnapshots.pendingSurfaces.delete(surface);
+
         // Resolve the activator so it can process the next item in the queue
         this.#pendingSnapshots.streamActivators.get(surface)?.promise.resolve();
 
         // Resolve pending targets with the value
         for (const handler of handlers) {
-            window.clearTimeout(handler.timer);
+            handler.ctRegistration?.unregister();
             handler.resolve(streamData.data);
         }
 
@@ -510,44 +508,51 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns A promise that resolves to a {@link RadLease} object representing the acquired lease
      * @throws OperationError if the lease acquisition fails
      */
-    async acquireLease(autoRenew = false, ttlSeconds = 10, store = true): Promise<SimpleLease | AutoLease> {
-        let lease: SimpleLease | AutoLease;
+    async acquireLease(autoRenew = false, ttlSeconds = 10, store = true, ct?: ICancellationToken): Promise<SimpleLease | AutoLease> {
+        return new Promise(async (resolve, reject) => {
+            if (!ct) ct = this.defaultTimeoutMs ? CancellationTokenSource.createWithTimeout(this.defaultTimeoutMs).token : CancellationToken.None;
+            ct.register(reason => reject(new DOMException(reason, "TimeoutError")));
 
-        if (autoRenew) {
-            const autoLease = new AutoLease(this, ttlSeconds);
-            await autoLease.start();
-            lease = autoLease;
-        } else {
-            const simpleLease = new SimpleLease(this, ttlSeconds);
-            await simpleLease.acquire();
-            lease = simpleLease;
-        }
+            let lease: SimpleLease | AutoLease;
+            if (autoRenew) {
+                const autoLease = new AutoLease(this, ttlSeconds);
+                await autoLease.start();
+                lease = autoLease;
+            } else {
+                const simpleLease = new SimpleLease(this, ttlSeconds);
+                await simpleLease.acquire();
+                lease = simpleLease;
+            }
 
-        if (store)
-            this.lease = lease;
+            if (store)
+                this.lease = lease;
 
-        return lease;
+            resolve(lease);
+        });
     }
 
-    async getDeviceCapabilities(timeoutMs?: number): Promise<Schema.RadProtocolInfoCompact> {
+    async getDeviceCapabilities(params: RadApiBaseParams = {}): Promise<Schema.RadProtocolInfoCompact> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L996
-        return this.sendWithResult<Schema.RadProtocolInfoCompact>({ op: "device.capabilities" }, undefined, timeoutMs);
+        return this.sendWithResult<Schema.RadProtocolInfoCompact>({ ...params, req: { op: "device.capabilities" } });
     }
 
-    async getOtaCapabilities(timeoutMs?: number): Promise<Schema.RadOtaCapabilities> {
+    async getOtaCapabilities(params: RadApiBaseParams = {}): Promise<Schema.RadOtaCapabilities> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1002
-        return this.sendWithResult<Schema.RadOtaCapabilities>({ op: "ota.capabilities" }, undefined, timeoutMs);
+        return this.sendWithResult<Schema.RadOtaCapabilities>({ ...params, req: { op: "ota.capabilities" } });
     }
 
     /**
      * Streams catalog entries from the device page by page, yielding entries individually
      * @throws DataError if the catalog response is malformed or missing data
      */
-    async *getCatalog(timeoutMsPerPage?: number): AsyncGenerator<Schema.RadCatalogEntry, void, unknown> {
+    async *getCatalog(params: RadApiBaseParams = {}): AsyncGenerator<Schema.RadCatalogEntry, void, unknown> {
         let page = 0;
         while (true) {
             // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1031
-            const res = await this.sendWithResult<Schema.RadCatalogPage>({ op: "catalog.read", args: { page } }, undefined, timeoutMsPerPage);
+            const res = await this.sendWithResult<Schema.RadCatalogPage>({
+                req: { op: "catalog.read", args: { page } },
+                ...params
+            });
 
             // Yield each resource in the page
             yield* res.resources;
@@ -559,25 +564,25 @@ export class RadBleApi extends BleConnectionHandler {
         }
     }
 
-    async getStateSnapshot(timeoutMs?: number): Promise<Schema.RadState> {
+    async getStateSnapshot(params: RadApiBaseParams = {}): Promise<Schema.RadState> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1041
-        return this.sendWithResult<Schema.RadState>({ op: "state.read" }, undefined, timeoutMs);
+        return this.sendWithResult<Schema.RadState>({ ...params, req: { op: "state.read" } });
     }
 
-    async readSensor<T = unknown>(path: string, timeoutMs?: number, isPriority?: boolean): Promise<T> {
+    async readSensor<T = unknown>(params: RadApiBaseParams & { path: string }): Promise<T> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1052
-        return this.sendWithResult<T>({ op: "sensor.read", path }, undefined, timeoutMs, isPriority);
+        return this.sendWithResult<T>({ ...params, req: { op: "sensor.read", path: params.path }});
     }
 
-    async getEssentialSnapshot(timeoutMs?: number): Promise<unknown> {
+    async getEssentialSnapshot(params: RadApiBaseParams = {}): Promise<unknown> {
         // Only essential.live is operated upon in the base RAD firmware, but that still calls out to the snapshot handler for an unknown compile time response, so for now I will leave this as T = unknown and let the caller handle the type
-        return this.readSensor<unknown>("essential.live", timeoutMs);
+        return this.readSensor<unknown>({ ...params, path: "essential.live" });
     }
 
-    async getConnectivitySnapshot(timeoutMs?: number): Promise<unknown> {
+    async getConnectivitySnapshot(params: RadApiBaseParams = {}): Promise<unknown> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1061
         // This also calls out to a Surface:: and has no default handler, so return type is unknown here
-        return this.sendWithResult({ op: "wifi.status" }, undefined, timeoutMs);
+        return this.sendWithResult({ ...params, req: { op: "wifi.status" } });
     }
 
     /**
@@ -587,15 +592,15 @@ export class RadBleApi extends BleConnectionHandler {
      * Surfaces allowed: Indicator, Haptic, Audio, Display
      * See https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1495
      */
-    async readOutput<T = unknown>(path: string, timeoutMs?: number, isPriority?: boolean): Promise<T> {
+    async readOutput<T = unknown>(params: RadApiBaseParams & { path: string }): Promise<T> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1069
         // Calls a dynamic snapshot surface handler, type is unknown
-        return this.sendWithResult<T>({ op: "output.read", path }, undefined, timeoutMs, isPriority);
+        return this.sendWithResult<T>({ ...params, req: { op: "output.read", path: params.path } });
     }
 
-    async readSensorMany<T = unknown>(paths: string[], timeoutMs?: number, isPriority?: boolean): Promise<Schema.RadSensorReadManyEntry<T>[]> {
+    async readSensorMany<T = unknown>(params: RadApiBaseParams & { paths: string[] }): Promise<Schema.RadSensorReadManyEntry<T>[]> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1095
-        return this.sendWithResult<Schema.RadSensorReadManyEntry<T>[]>({ op: "sensor.readMany", args: { paths } }, undefined, timeoutMs, isPriority);
+        return this.sendWithResult<Schema.RadSensorReadManyEntry<T>[]>({ ...params, req: { op: "sensor.readMany", args: { paths: params.paths } }});
     }
 
     /**
@@ -604,27 +609,28 @@ export class RadBleApi extends BleConnectionHandler {
      * @param rateHz Rate in Hz to stream at. If omitted, the device will use its default rate for the stream
      * @requires A valid lease token
      */
-    async startStream(path: string, rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult> {
-        this._requireLease();
-
+    async startStream(params: RadApiBaseParams & { path: string, rateHz?: number }): Promise<Schema.RadStreamResult> {
         if (this.activeStream)
             throw new DOMException("An existing stream is already active, call stopStream first", "InvalidStateError");
-        
+
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1569
         const result = await this.sendWithResult<Schema.RadStreamResult>({
-            op: "stream.start",
-            path,
-            args: {
-                rateHz
-            }
-        }, this.lease!, timeoutMs);
+            ...params,
+            req: {
+                op: "stream.start",
+                path: params.path,
+                args: {
+                    rateHz: params.rateHz
+                }
+            },
+            lease: this._requireLease()
+        });
 
         this.#activeStream = result;
 
         return result;
     }
 
-    async updateStream(rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult>;
     /**
      * Updates the current stream configuration
      * @param path Path to stream, if any. If omitted, the current stream path is used
@@ -632,42 +638,26 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns A promise resolving to the updated stream result
      * @requires A valid lease token
      */
-    async updateStream(path?: string, rateHz?: number, timeoutMs?: number): Promise<Schema.RadStreamResult>;
-    /** @deprecated Use one of the overload methods instead */
-    async updateStream(
-        pathOrRateHz?: string | number,
-        rateHzOrTimeoutMs?: number,
+    async updateStream(params: RadApiBaseParams & {
+        path?: string,
+        rateHz?: number,
         timeoutMs?: number
-    ): Promise<Schema.RadStreamResult> {
-        this._requireLease();
-
+    }): Promise<Schema.RadStreamResult> {
         if (!this.activeStream)
             throw new DOMException("No stream is active, call startStream first", "InvalidStateError");
 
-        let path: string | undefined;
-        let rateHz: number | undefined;
-        let timeout: number | undefined;
-
-        if (typeof pathOrRateHz === "number") {
-            // Called as updateStream(rateHz, timeoutMs)
-            path = undefined;
-            rateHz = pathOrRateHz;
-            timeout = rateHzOrTimeoutMs;
-        } else {
-            // Called as updateStream(path, rateHz, timeoutMs) or updateStream()
-            path = pathOrRateHz;
-            rateHz = rateHzOrTimeoutMs;
-            timeout = timeoutMs;
-        }
-
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1550
         const result = await this.sendWithResult<Schema.RadStreamResult>({
-            op: "stream.update",
-            path,
-            args: {
-                rateHz
-            }
-        }, this.lease!, timeoutMs); 
+            ...params,
+            req: {
+                op: "stream.update",
+                path: params.path,
+                args: {
+                    rateHz: params.rateHz
+                }
+            },
+            lease: this._requireLease()
+        }); 
         
         this.#activeStream = result;
 
@@ -677,10 +667,9 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * @requires A valid lease token
      */
-    async stopStream(timeoutMs?: number): Promise<void> {
-        this._requireLease();
+    async stopStream(params: RadApiBaseParams = {}): Promise<void> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1542
-        await this.send({ op: "stream.stop" }, this.lease!, timeoutMs);
+        await this.send({ ...params, req: { op: "stream.stop" }, lease: this._requireLease() });
         this.#activeStream = null;
     }
 
@@ -690,9 +679,11 @@ export class RadBleApi extends BleConnectionHandler {
      * *Due to quirkiness in how the firmware works, despite streams returning snapshots of entire surfaces, the stream parameter requires the path to a property instead...*
      * @returns A snapshot of the surface that the property belongs to
      */
-    async getSnapshot<T>(path: string, timeoutMs?: number): Promise<T> {
-        if (!timeoutMs) timeoutMs = this.defaultTimeoutMs;
-        const [surface] = path.split(".", 2);
+    async getSnapshot<T>(params: RadApiBaseParams & { path: string, activatorTimeoutMs?: number }): Promise<T> {
+        const timeoutMs = params.activatorTimeoutMs ?? this.defaultTimeoutMs ?? 5000;
+        const cts = !params.ct && timeoutMs ? CancellationTokenSource.createWithTimeout(timeoutMs) : undefined;
+        const ct = params.ct ?? cts?.token ?? CancellationToken.None;
+        const [surface] = params.path.split(".", 2);
 
         this._requireLease();
 
@@ -714,21 +705,22 @@ export class RadBleApi extends BleConnectionHandler {
         if (this.#activeStream && !this.#pendingSnapshots.activeStream)
             throw new DOMException("getSnapshot cannot be called while an external stream is active", "NotSupportedError");
 
+        let snapshotPromiseCtRegistration: CancellationTokenRegistration | undefined;
         const snapshotPromise = new Promise<T>((resolve, reject) => {
-            const pendingSurfaceRequest: ResolveRejectTimer<T> = { resolve, reject, timer: Number.NaN }
+            const pendingSurfaceRequest: ResolveReject<T> = { resolve, reject };
 
-            pendingSurfaceRequest.timer = window.setTimeout(() => {
+            snapshotPromiseCtRegistration = ct.register((reason) => {
                 // If we time out waiting for a snapshot, remove self from the pending surfaces
-                this.#pendingSnapshots.pendingSurfaces.get(surface)?.delete(pendingSurfaceRequest as ResolveRejectTimer<unknown>);
-                reject(new DOMException("getSnapshot timed out", "TimeoutError"));
-            }, timeoutMs);
+                this.#pendingSnapshots.pendingSurfaces.get(surface)?.delete(pendingSurfaceRequest as SnapshotPendingHandler);
+                reject(new DOMException(reason ?? "getSnapshot was canceled", "AbortError"));
+            });
 
             let pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
             if (!pendingSet) {
-                pendingSet = new Set<ResolveRejectTimer<unknown>>();
+                pendingSet = new Set<SnapshotPendingHandler>();
                 this.#pendingSnapshots.pendingSurfaces.set(surface, pendingSet);
             }
-            pendingSet.add(pendingSurfaceRequest as ResolveRejectTimer<unknown>);
+            pendingSet.add(pendingSurfaceRequest as SnapshotPendingHandler);
         });
         // #endregion
 
@@ -752,6 +744,12 @@ export class RadBleApi extends BleConnectionHandler {
                 rejectActivatorQueueTask = reject;
             });
 
+            /* Dedicated CTS for the internal activator task, this is required since the activator task MUST be time based
+             * (due to how I handle replacing activators internally, too complex for me to rewrite it to support generic CTs a day after I just made the time based approach)
+            */
+            // TIL 'using' is a keyword in JS for disposable objects :3
+            using activatorCts = CancellationTokenSource.createWithTimeout(timeoutMs);
+
             const activatorTask = async () => {
                 // Don't activate a stream if nothing is waiting on it
                 const pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
@@ -767,10 +765,14 @@ export class RadBleApi extends BleConnectionHandler {
                      * See https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.h#1576
                      */
                     // Not using updateStream here since we want to generate a new ID for the request
-                    streamInstance = await this.startStream(path, 50, expiresAt - Date.now());
+                    streamInstance = await this.startStream({
+                        path: params.path,
+                        rateHz: 50,
+                        ct: activatorCts.token
+                    });
                     this.#pendingSnapshots.activeStream = { id: streamInstance.streamId, surface: surface };
                     
-                    // Keep this function blocked until #onStream resolve it or it times out
+                    // Keep this function blocked until #onStream resolves it, or it times out, or all callers cancel
                     await activatorWaitForPromise;
                 } finally {
                     /* End the stream that was started for this task (this is allowed to throw)
@@ -811,12 +813,12 @@ export class RadBleApi extends BleConnectionHandler {
                     existingActivator.signature,
                     activatorTask,
                     error,
-                    timeoutMs
+                    activatorCts.token
                 );
             } else {
                 queuedActivatorPromise = this.#pendingSnapshots.streamActivatorQueue.enqueue(
                     activatorTask,
-                    timeoutMs
+                    activatorCts.token
                 );
             }
 
@@ -831,7 +833,7 @@ export class RadBleApi extends BleConnectionHandler {
                 const pendingSet = this.#pendingSnapshots.pendingSurfaces.get(surface);
                 if (pendingSet) {
                     for (const handler of pendingSet) {
-                        window.clearTimeout(handler.timer);
+                        handler.ctRegistration?.unregister();
                         handler.reject(err);
                     }
                     this.#pendingSnapshots.pendingSurfaces.delete(surface);
@@ -843,7 +845,13 @@ export class RadBleApi extends BleConnectionHandler {
 
         // (Part 3) -> See #onStream
 
-        return snapshotPromise;
+        try {
+            return await snapshotPromise;
+        } finally {
+            // Clean up resources
+            snapshotPromiseCtRegistration?.unregister();
+            cts?.dispose();
+        }
     }
 
     /**
@@ -856,34 +864,40 @@ export class RadBleApi extends BleConnectionHandler {
      * @note **Untested**
      * @note This also discards this RAD API instance
      */
-    async performOta(
+    async performOta(params: RadApiBaseParams & {
         binaryBuffer: ArrayBuffer,
         sha256?: string,
         component?: Schema.RadOtaComponent,
         onProgress?: (bytesSent: number, totalBytes: number) => void
-    ) {
-        if (!sha256) {
+    }) {
+        this._requireLease();
+
+        if (!params.sha256) {
             // Calculate SHA256 hash of the binary
-            const hashBuffer = await crypto.subtle.digest("SHA-256", binaryBuffer);
-            sha256 = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+            const hashBuffer = await crypto.subtle.digest("SHA-256", params.binaryBuffer);
+            params.sha256 = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
         }
 
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1190
         const beginResult = await this.sendWithResult<Schema.RadOtaBeginResult>({
-            op: "ota.begin",
-            args: {
-                size: binaryBuffer.byteLength,
-                sha256,
-                component
-            }
-        }, this.lease!);
+            ...params,
+            req: {
+                op: "ota.begin",
+                args: {
+                    size: params.binaryBuffer.byteLength,
+                    sha256: params.sha256,
+                    component: params.component
+                }
+            },
+            lease: this._requireLease()
+        });
 
         // Transmit data
         try {
             const CHUNK_SIZE = 480;
             let offset = 0;
-            while (offset < binaryBuffer.byteLength) {
-                const chunk = binaryBuffer.slice(offset, offset + CHUNK_SIZE);
+            while (offset < params.binaryBuffer.byteLength) {
+                const chunk = params.binaryBuffer.slice(offset, offset + CHUNK_SIZE);
                 
                 // Frame building (not gonna pretend like I know whats going on here)
                 const payloadLen = chunk.byteLength;
@@ -904,7 +918,7 @@ export class RadBleApi extends BleConnectionHandler {
                     await this._radService.otaData!.writeValueWithoutResponse(frameArray);
                 });
 
-                onProgress?.(offset, binaryBuffer.byteLength);
+                params.onProgress?.(offset, params.binaryBuffer.byteLength);
                 offset += CHUNK_SIZE;
 
                 // Throttle to avoid overwhelming the device (as OTA writes to NVS slow down the device a lot in my testing in other projects)
@@ -914,12 +928,12 @@ export class RadBleApi extends BleConnectionHandler {
             // If an error occurs during the OTA update, attempt to abort the update
             try {
                 // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1215
-                await this.send({
+                await this.send({ ...params, req: {
                     op: "ota.abort",
                     args: {
                         session: beginResult.session
                     }
-                }, this.lease!);
+                }});
             }
             catch { /* Ignore */ }
             throw err;
@@ -928,14 +942,18 @@ export class RadBleApi extends BleConnectionHandler {
         // Finish OTA
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1212
         const finishResult = await this.sendWithResult<Schema.RadOtaFinishResult>({
-            op: "ota.finish",
-            args: {
-                session: beginResult.session
-            }
-        }, this.lease!);
+            ...params,
+            req: {
+                op: "ota.finish",
+                args: {
+                    session: beginResult.session
+                }
+            },
+            lease: this._requireLease()
+        });
 
-        if (finishResult.sha256 !== sha256)
-            throw new DOMException(`OTA update failed: SHA256 mismatch (expected ${sha256}, got ${finishResult.sha256})`, "DataError");
+        if (finishResult.sha256 !== params.sha256)
+            throw new DOMException(`OTA update failed: SHA256 mismatch (expected ${params.sha256}, got ${finishResult.sha256})`, "DataError");
 
         this.disconnect(); // This instance will be invalidated since the device will reboot at this point
     }
@@ -944,10 +962,9 @@ export class RadBleApi extends BleConnectionHandler {
      * Scans for available WiFi networks
      * @requires A valid lease token
      */
-    async wifiScan(timeoutMs?: number): Promise<Schema.RadWiFiScanResult> {
-        this._requireLease();
+    async wifiScan(params: RadApiBaseParams = {}): Promise<Schema.RadWiFiScanResult> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1606
-        const res = await this.sendWithResult<Partial<Schema.RadWiFiScanResult>>({ op: "wifi.scan" }, this.lease!, timeoutMs);
+        const res = await this.sendWithResult<Partial<Schema.RadWiFiScanResult>>({ ...params, req: { op: "wifi.scan" }, lease: this._requireLease() });
 
         /* This RAD command returns a success response even if a scan is already in progress.
          * The true success state is at the end of the original request where 'running' is false and the return result is ok
@@ -961,10 +978,9 @@ export class RadBleApi extends BleConnectionHandler {
     /**
      * @requires A valid lease token
      */
-    async wifiForget(timeoutMs?: number): Promise<void> {
-        this._requireLease();
+    async wifiForget(params: RadApiBaseParams = {}): Promise<void> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1705
-        await this.send({ op: "wifi.forget" }, this.lease!, timeoutMs);
+        await this.send({ ...params, req: { op: "wifi.forget" }, lease: this._requireLease() });
     }
 
     /**
@@ -974,10 +990,19 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns Void when the credentials have been saved and the device has requested to connect. This does not guarantee that the connection was successful, only that the device has accepted the request to connect. Use {@link getConnectivitySnapshot} to check the connection status.
      * @requires A valid lease token
      */
-    async wifiConfigure(ssid: string, password?: string, timeoutMs?: number): Promise<void> {
-        this._requireLease();
+    async wifiConfigure(params: RadApiBaseParams & { ssid: string, password?: string }): Promise<void> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1711
-        await this.send({ op: "wifi.configure", args: { ssid, password } }, this.lease!, timeoutMs);
+        await this.send({
+            ...params,
+            req: {
+                op: "wifi.configure",
+                args: {
+                    ssid: params.ssid,
+                    password: params.password
+                }
+            },
+            lease: this._requireLease()
+        });
     }
 
     /**
@@ -985,10 +1010,9 @@ export class RadBleApi extends BleConnectionHandler {
      * @requires a valid lease
      * @note This also discards this RAD API instance
      */
-    async restartSystem(timeoutMs?: number): Promise<void> {
-        this._requireLease();
+    async restartSystem(params: RadApiBaseParams = {}): Promise<void> {
         this._taskQueue.clearQueue();
-        await this.send({ op: "system.restart" }, this.lease!, timeoutMs, true);
+        await this.send({ ...params, req: { op: "system.restart" }, lease: this._requireLease(), isPriority: true });
         this.disconnect();
     }
 
@@ -998,10 +1022,9 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns The value of the setting
      * @requires A valid lease token
      */
-    async readSetting<T = unknown>(path: string, timeoutMs?: number, isPriority?: boolean): Promise<T> {
-        this._requireLease();
-        // Handled by abstract command handler, compile time type is unknown
-        return this.sendWithResult<T>({ op: "setting.read", path }, this.lease!, timeoutMs, isPriority);
+    async readSetting<T = unknown>(params: RadApiBaseParams & { path: string }): Promise<T> {
+        // Handled by remote abstract command handler, compile time type is unknown
+        return this.sendWithResult<T>({ ...params, req: { op: "setting.read", path: params.path }, lease: this._requireLease()});
     }
 
     /**
@@ -1011,14 +1034,17 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns The value of the setting
      * @requires A valid lease token
      */
-    async writeSetting<T = unknown>(path: string, args: Record<string, unknown>, timeoutMs?: number, isPriority?: boolean): Promise<T> {
-        this._requireLease();
+    async writeSetting<T = unknown>(params: RadApiBaseParams & { path: string, args: Record<string, unknown> }): Promise<T> {
         // Handled by abstract command handler, compile time type is unknown
         return this.sendWithResult<T>({
-            op: "setting.write",
-            path,
-            args
-        }, this.lease!, timeoutMs, isPriority);
+            ...params,
+            req: {
+                op: "setting.write",
+                path: params.path,
+                args: params.args
+            },
+            lease: this._requireLease()
+        });
     }
 
     /**
@@ -1026,25 +1052,24 @@ export class RadBleApi extends BleConnectionHandler {
      * @param path The path to the setting to reset
      * @requires A valid lease token
      */
-    async resetSetting(path: string, timeoutMs?: number, isPriority?: boolean): Promise<void> {
-        this._requireLease();
+    async resetSetting(params: RadApiBaseParams & { path: string }): Promise<void> {
         // Handled by abstract command handler, compile time type is unknown
-        await this.send({ op: "setting.reset", path }, this.lease!, timeoutMs, isPriority);
+        await this.send({ ...params, req: { op: "setting.reset", path: params.path }, lease: this._requireLease() });
     }
 
-    async getDeviceName(timeoutMs?: number): Promise<string> {
+    async getDeviceName(params: RadApiBaseParams = {}): Promise<string> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1238
-        return this.readSetting<string>("device.name", timeoutMs);
+        return this.readSetting<string>({ ...params, path: "device.name"});
     }
 
-    async setDeviceName(name: string, timeoutMs?: number): Promise<Schema.RadSetDeviceNameResult> {
+    async setDeviceName(params: RadApiBaseParams & { name: string }): Promise<Schema.RadSetDeviceNameResult> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L714
-        return this.writeSetting<Schema.RadSetDeviceNameResult>("device.name", { value: name }, timeoutMs);
+        return this.writeSetting<Schema.RadSetDeviceNameResult>({ ...params, path: "device.name", args: { value: params.name }});
     }
 
-    async resetDeviceName(timeoutMs?: number): Promise<void> {
+    async resetDeviceName(params: RadApiBaseParams = {}): Promise<void> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1238
-        await this.resetSetting("device.name", timeoutMs);
+        await this.resetSetting({ ...params, path: "device.name" });
     }
     // #endregion
 
@@ -1063,11 +1088,12 @@ export class RadBleApi extends BleConnectionHandler {
      * Ensures that a lease is currently active and valid.
      * @throws DOMException if no lease is available or if the existing lease has expired.
      */
-    protected _requireLease(): void {
+    protected _requireLease(): RadLease {
         if (!this.lease)
             throw new DOMException("No lease acquired", "InvalidStateError");
         if (this.lease.isExpired)
             throw new DOMException("Lease has expired", "InvalidStateError");
+        return this.lease;
     }
 
     #snakeCaseToCamelCase(str: string): string {
