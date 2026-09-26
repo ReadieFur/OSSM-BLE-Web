@@ -505,7 +505,11 @@ export class OssmBleClient extends RadBleApi {
         rateHz?: number,
         timeoutMs?: number
     ): Promise<RadSchema.RadStreamResult> {
-        return super.startStream(OSSM_SURFACE_STREAM_MAP[surface], rateHz, timeoutMs);
+        // Only map if 'surface' is a valid key in OSSM_SURFACE_STREAM_MAP (super calls out to this so we can't blindly get the key from the map)
+        const streamTarget = surface in OSSM_SURFACE_STREAM_MAP
+            ? OSSM_SURFACE_STREAM_MAP[surface as OssmSchema.OssmSurface]
+            : surface;
+        return super.startStream(streamTarget, rateHz, timeoutMs);
     }
 
     override async updateStream(rateHz?: number, timeoutMs?: number): Promise<RadSchema.RadStreamResult>;
@@ -526,7 +530,9 @@ export class OssmBleClient extends RadBleApi {
             timeout = rateHzOrTimeoutMs;
         } else if (surfaceOrRateHz !== undefined) {
             // Called as updateStream(surface, rateHz, timeoutMs)
-            path = OSSM_SURFACE_STREAM_MAP[surfaceOrRateHz];
+            path = surfaceOrRateHz in OSSM_SURFACE_STREAM_MAP
+                ? OSSM_SURFACE_STREAM_MAP[surfaceOrRateHz as OssmSchema.OssmSurface]
+                : surfaceOrRateHz;
             rateHz = rateHzOrTimeoutMs;
             timeout = timeoutMs;
         } else {

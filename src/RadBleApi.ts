@@ -310,6 +310,8 @@ export class RadBleApi extends BleConnectionHandler {
                 // Check that the request hasn't been aborted
                 if (!this.#pendingRequests.has(id)) return;
 
+                // this._debugLog(`Sending RAD request:`, { lease, ...request });
+
                 // Ensure the state is valid to make the ble call
                 this._requireRadCharacteristic("request");
                 await this._radService.request!.writeValueWithoutResponse(payload());
