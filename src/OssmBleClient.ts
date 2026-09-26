@@ -633,6 +633,44 @@ export class OssmBleClient extends RadBleApi {
     }
     // #endregion
 
+    /**
+     * Fetches the available patterns from the OSSM device
+     * @returns A list of {@link OssmPattern} objects
+     */
+    async *getPatterns(): AsyncGenerator<OssmSchema.OssmPattern, void, unknown> {
+        // Based on old code from: https://github.com/ReadieFur/OSSM-BLE-Web/blob/19d6eecf9a329d60b48c56e56ad36bddd5f3fd98/src/OssmClient.ts#L102-L128
+
+        // Since this uses the still exposed legacy endpoint, we don't need a lease
+
+        // The pattern API has a suffix of 3000 which can be reached via the 'button' tag
+        const basicPatternInfo = this._parseValueAsJson<OssmSchema.OssmBasicPatternInfo[]>(
+            await this._taskQueue.enqueue(async () => {
+                this._requireRadCharacteristic("button");
+                return this._radService.button!.readValue();
+            }
+        ));
+        this._debugLog(`[${this._device.id}] Read Legacy API (suffix=3000):`, basicPatternInfo);
+
+        for (const pattern of basicPatternInfo) {
+            // The 'encoder' tag holds the pattern description value on the legacy API
+            const description = this._dec.decode(
+                await this._taskQueue.enqueue(async () => {
+                    this._requireRadCharacteristic("encoder");
+                    this._debugLog(`[${this._device.id}] Writing Legacy API (suffix=3010):`, pattern.idx);
+                    await this._radService.encoder!.writeValue(this._enc.encode(pattern.idx.toString()));
+                    return this._radService.encoder!.readValue();
+                }
+            ));
+            this._debugLog(`[${this._device.id}] Read Legacy API (suffix=3010):`, description);
+
+            yield {
+                idx: pattern.idx,
+                name: pattern.name,
+                description
+            };
+        }
+    }
+
     // #region Helpers
     /**
      * Helper function to apply common stroke engine parameters in an order that aims to be safer and reduce jerkiness

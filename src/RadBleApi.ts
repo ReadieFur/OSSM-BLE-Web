@@ -214,7 +214,7 @@ export class RadBleApi extends BleConnectionHandler {
         }
 
         // Validate protocol
-        const info = this.#parseValueAsJson<Schema.RadProtocolInfo>(
+        const info = this._parseValueAsJson<Schema.RadProtocolInfo>(
             await this._taskQueue.enqueue(() => this._radService.protocolInfo!.readValue()));
         if (!info || info?.protocol !== "rad-ble" || info?.version !== 1)
             throw new DOMException(`Unexpected protocol info: ${JSON.stringify(info)}`, "NotSupportedError");
@@ -364,7 +364,7 @@ export class RadBleApi extends BleConnectionHandler {
             case "response": {
                 if (!value) return;
 
-                try { value = this.#parseValueAsJson<Schema.RadResponse>(value); }
+                try { value = this._parseValueAsJson<Schema.RadResponse>(value); }
                 catch { return; }
 
                 handled = this.#onResponse(value);
@@ -393,7 +393,7 @@ export class RadBleApi extends BleConnectionHandler {
 
                     const flags = value.getUint16(2, true);
                     if ((flags & Schema.RadStreamFlags.Utf8Json) !== 0)
-                        data = this.#parseValueAsJson(payloadBytes);
+                        data = this._parseValueAsJson(payloadBytes);
 
                     value = {
                         protocolVersion: value.getUint8(0),
@@ -1086,7 +1086,7 @@ export class RadBleApi extends BleConnectionHandler {
     // #endregion
 
     // #region Helpers
-    #parseValueAsJson<T = unknown>(value: AllowSharedBufferSource): T {
+    protected _parseValueAsJson<T = unknown>(value: AllowSharedBufferSource): T {
         const str = this._dec.decode(value);
         return JSON.parse(str) as T;
     }

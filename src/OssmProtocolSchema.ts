@@ -133,3 +133,12 @@ export type OssmSurfacePayloadMap = EnforceExhaustiveMap<OssmSurface, {
     [RadSchema.RadSurface.Button]: OssmButtonSnapshot,
     [RadSchema.RadSurface.Motion]: OssmMotionSnapshot
 }>;
+
+export interface OssmBasicPatternInfo {
+    idx: number;
+    name: string;
+}
+
+export interface OssmPattern extends OssmBasicPatternInfo {
+    description: string;
+}
