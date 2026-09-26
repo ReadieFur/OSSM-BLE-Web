@@ -669,19 +669,21 @@ export class OssmBleClient extends RadBleApi {
         const targetDepth = params.newState.depth ?? effectiveOldDepth;
         const targetStroke = params.newState.stroke ?? effectiveOldStroke;
 
+        const promises: Promise<unknown>[] = [];
+
         // Function delegates
-        const applyPattern = async () => {
-            if (shouldWritePattern) await this.setPattern({ ...params, patternIdx: params.newState.pattern! });
+        const applyPattern = () => {
+            if (shouldWritePattern) promises.push(this.setPattern({ ...params, patternIdx: params.newState.pattern! }));
         };
-        const applySpeed = async () => {
-            if (shouldWriteSpeed) await this.setSpeed({ ...params, value: params.newState.speed! });
+        const applySpeed = () => {
+            if (shouldWriteSpeed) promises.push(this.setSpeed({ ...params, value: params.newState.speed! }));
         };
-        const applyDepthAndStroke = async () => {
-            if (shouldWriteDepth) await this.setDepth({ ...params, value: params.newState.depth! });
-            if (shouldWriteStroke) await this.setStroke({ ...params, value: params.newState.stroke! });
+        const applyDepthAndStroke = () => {
+            if (shouldWriteDepth) promises.push(this.setDepth({ ...params, value: params.newState.depth! }));
+            if (shouldWriteStroke) promises.push(this.setStroke({ ...params, value: params.newState.stroke! }));
         };
-        const applySensation = async () => {
-            if (shouldWriteSensation) await this.setSensation({ ...params, value: params.newState.sensation! });
+        const applySensation = () => {
+            if (shouldWriteSensation) promises.push(this.setSensation({ ...params, value: params.newState.sensation! }));
         };
 
         // Calculate offsets used to determine the safe order to apply the changes
@@ -692,23 +694,27 @@ export class OssmBleClient extends RadBleApi {
         const isDecreasingSpeed = targetSpeed < effectiveOldSpeed;
         const isExpandingRangeAtHigherSpeed = targetSpeed > effectiveOldSpeed && (newMin < oldMin || newMax > oldMax);
 
-        await applyPattern();
-
+        applyPattern();
         if (isDecreasingSpeed) {
             // Safe case: Drop speed first, then apply motion range changes
-            await applySpeed();
-            await applyDepthAndStroke();
+            applySpeed();
+            applyDepthAndStroke();
         } else if (isExpandingRangeAtHigherSpeed) {
             // Risky case: Expand motion range at current lower speed BEFORE accelerating
-            await applyDepthAndStroke();
-            await applySpeed();
+            applyDepthAndStroke();
+            applySpeed();
         } else {
             // Neutral case
-            await applyDepthAndStroke();
-            await applySpeed();
+            applyDepthAndStroke();
+            applySpeed();
         }
+        applySensation();
 
-        await applySensation();
+        /* Use Promise.all here instead of awaiting on each call, the queue manager will send the requests in the order they are called
+         * But this method won't wait for a response after each call, so the result is the device gets updated much faster
+         * But still wait for all of them to complete before returning
+         */
+        await Promise.all(promises);
     }
 
     #enforceRange(value: number, min: number, max: number, errorStr?: string): void {

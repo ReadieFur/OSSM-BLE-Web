@@ -15,7 +15,7 @@ You can include OSSM BLE Web in your web project by downloading the [latest rele
 The library is bundled to a single JavaScript file. To use it in your web application you must import either the `ossm-ble-web.global.js` for global scope or as a module using `ossm-ble-web.js`.  
 
 This library has VASTLY far more capabilities than what is listed below.  
-See the exported `.d.ts` file for full type definitions.  
+See the generated `.d.ts` file for full type definitions.  
 The source code is also HEAVILY documented so you can see how it all works in there.  
 <details>
 <summary><small>And you might want to take a look at my source code...</small></summary>
@@ -41,6 +41,7 @@ await client.acquireLease(true); // Required for write operations
 ```ts
 await client.setSpeedKnobAsLimit(false);
 await client.navigateTo(OssmMenu.StrokeEngine);
+// Use Promise.all instead of awaiting for each since it is faster (doesn't wait for a response before starting the next call)
 await Promise.all([
     client.setDepth(80),
     client.setStroke(60),
