@@ -51,9 +51,10 @@ await Promise.all([
 
 #### Device information
 ```ts
-await client.getAnalogSnapshot(); // @see OssmAnalogSnapshot (e.g. motor current)
-await client.getMotionSnapshot(); // @see OssmMotionSnapshot (e.g. current position, speed)
+await client.getAnalogSnapshot(); // Returns {@see OssmAnalogSnapshot} (e.g. motor current)
+await client.getMotionSnapshot(); // Returns {@see OssmMotionSnapshot} (e.g. current position, speed)
 await client.getActivePatternIndex();
+await Array.fromAsync(await client.getPatterns()); // Returns an async iterator for {@see OssmPattern} (e.g. idx, name, description)
 ```
 
 #### Events
