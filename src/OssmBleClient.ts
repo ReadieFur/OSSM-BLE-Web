@@ -20,6 +20,14 @@ type OssmSurfaceEvents<OWNED extends boolean = false> = {
         : SingleEvent<[OssmSchema.OssmSurfacePayloadMap[K]]>;
 };
 
+export type OssmCommonPlayParameters = Pick<OssmSchema.OssmMotionSnapshot,
+    "speed"
+    | "stroke"
+    | "depth"
+    | "sensation"
+    | "pattern"
+>;
+
 export class OssmBleClient extends RadBleApi {
     /**
      * Prompts the user via the browser to pair with an OSSM BLE device
@@ -549,6 +557,85 @@ export class OssmBleClient extends RadBleApi {
         const streamTelemetry = t as RadSchema.RadStream;
         if (!streamTelemetry.surface || !(streamTelemetry.surface in OSSM_SURFACE_STREAM_MAP)) return;
         (this.#onSurface[streamTelemetry.surface as OssmSchema.OssmSurface] as SingleEventSource<[any]>).dispatch(streamTelemetry.data);
+    }
+    // #endregion
+
+    // #region Helpers
+    /**
+     * Helper function to apply common stroke engine parameters in an order that aims to be safer and reduce jerkiness
+     * @param newParams A partial object of the new values to set
+     * @param oldState The old state to compare to determine the safe order to apply the new parameters.
+     * @requires A valid lease
+     */
+    async setCommonPlayParameters(newParams: Partial<OssmCommonPlayParameters>, oldState: Partial<OssmCommonPlayParameters> = {}, timeoutMs?: number): Promise<void> {
+        // Based on old code from: https://github.com/ReadieFur/OSSM-BLE-Web/blob/8779560bce4cade1eedafa5acd9140db0bc305a0/src/ossmBle.ts#L740-L810
+
+        this._requireLease();
+        
+        const deadline = timeoutMs ? Date.now() + timeoutMs : undefined;
+        const getRemainingTimeout = () => deadline ? Math.max(0, deadline - Date.now()) : undefined;
+
+        // I decided to not fetch the current state from the device or cache here since it adds too much delay
+
+        const shouldWritePattern = newParams.pattern !== undefined && newParams.pattern !== oldState.pattern;
+        const shouldWriteSpeed = newParams.speed !== undefined && newParams.speed !== oldState.speed;
+        const shouldWriteDepth = newParams.depth !== undefined && newParams.depth !== oldState.depth;
+        const shouldWriteStroke = newParams.stroke !== undefined && newParams.stroke !== oldState.stroke;
+        const shouldWriteSensation = newParams.sensation !== undefined && newParams.sensation !== oldState.sensation;
+
+        // Fast exit if no parameters changed
+        if (!shouldWritePattern && !shouldWriteSpeed && !shouldWriteDepth && !shouldWriteStroke && !shouldWriteSensation)
+            return;
+
+        // Synthesize worst-case effective old values for missing parameters (0 = conservative baseline)
+        const effectiveOldSpeed = oldState.speed ?? 0;
+        const effectiveOldDepth = oldState.depth ?? 0;
+        const effectiveOldStroke = oldState.stroke ?? 0;
+
+        const targetSpeed = newParams.speed ?? effectiveOldSpeed;
+        const targetDepth = newParams.depth ?? effectiveOldDepth;
+        const targetStroke = newParams.stroke ?? effectiveOldStroke;
+
+        // Function delegates
+        const applyPattern = async () => {
+            if (shouldWritePattern) await this.setPattern(newParams.pattern!, getRemainingTimeout());
+        };
+        const applySpeed = async () => {
+            if (shouldWriteSpeed) await this.setSpeed(newParams.speed!, getRemainingTimeout());
+        };
+        const applyDepthAndStroke = async () => {
+            if (shouldWriteDepth) await this.setDepth(newParams.depth!, getRemainingTimeout());
+            if (shouldWriteStroke) await this.setStroke(newParams.stroke!, getRemainingTimeout());
+        };
+        const applySensation = async () => {
+            if (shouldWriteSensation) await this.setSensation(newParams.sensation!, getRemainingTimeout());
+        };
+
+        // Calculate offsets used to determine the safe order to apply the changes
+        const oldMin = effectiveOldDepth - effectiveOldStroke;
+        const oldMax = effectiveOldDepth;
+        const newMin = targetDepth - targetStroke;
+        const newMax = targetDepth;
+        const isDecreasingSpeed = targetSpeed < effectiveOldSpeed;
+        const isExpandingRangeAtHigherSpeed = targetSpeed > effectiveOldSpeed && (newMin < oldMin || newMax > oldMax);
+
+        await applyPattern();
+
+        if (isDecreasingSpeed) {
+            // Safe case: Drop speed first, then apply motion range changes
+            await applySpeed();
+            await applyDepthAndStroke();
+        } else if (isExpandingRangeAtHigherSpeed) {
+            // Risky case: Expand motion range at current lower speed BEFORE accelerating
+            await applyDepthAndStroke();
+            await applySpeed();
+        } else {
+            // Neutral case
+            await applyDepthAndStroke();
+            await applySpeed();
+        }
+
+        await applySensation();
     }
     // #endregion
 }
