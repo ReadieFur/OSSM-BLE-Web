@@ -25,7 +25,7 @@ jobs:
           node-version: 20
 
       - name: Bump version
-        run: node bump-patch.js
+        run: npm run bump:patch
 
       - name: Commit and push
         id: commit
