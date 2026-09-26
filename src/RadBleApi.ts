@@ -94,10 +94,7 @@ export class RadBleApi extends BleConnectionHandler {
     #radCharacteristicGattMap: Map<BluetoothRemoteGATTCharacteristic, RadCharacteristicKey> = new Map();
     /** A map of all the requests that are currently being processed */
     #defaultTimeoutMs = 6000;
-    #requests = {
-        nextId: 1,
-        pending: new Map<number, ResolveRejectTimer<Schema.RadResponse>>()
-    }
+    #pendingRequests = new Map<number, ResolveRejectTimer<Schema.RadResponse>>()
     #activeStream: Schema.RadStreamResult | null = null;
     readonly #pendingSnapshots = {
         /** Holds the stream that the snapshot manager is currently waiting on */
@@ -237,12 +234,12 @@ export class RadBleApi extends BleConnectionHandler {
 
         const disconnectError = new DOMException("Device disconnected", "NetworkError");
 
-        for (const request of this.#requests.pending.values()) {
+        for (const request of this.#pendingRequests.values()) {
             if (!Number.isNaN(request.timer))
                 window.clearTimeout(request.timer);
             request.reject(disconnectError);
         }
-        this.#requests.pending.clear();
+        this.#pendingRequests.clear();
 
         for (const pendingSet of this.#pendingSnapshots.pendingSurfaces.values()) {
             for (const handler of pendingSet) {
@@ -275,7 +272,9 @@ export class RadBleApi extends BleConnectionHandler {
     ): Promise<Schema.RadResponse<T>> {
         if (!timeoutMs) timeoutMs = this.defaultTimeoutMs;
 
-        const id = this.#requests.nextId++;
+        let id: number;
+        do { id = crypto.getRandomValues(new Uint32Array(1))[0]; }
+        while (this.#pendingRequests.has(id));
         const request: Schema.RadRequest = { v: 1, id, ...req };
 
         let payload: () => BufferSource;
@@ -301,15 +300,15 @@ export class RadBleApi extends BleConnectionHandler {
         // Request gets resolved inside #onRequest
         const result = await new Promise<Schema.RadResponse<T>>((resolve, reject) => {
             const timer = window.setTimeout(() => {
-                this.#requests.pending.delete(id);
+                this.#pendingRequests.delete(id);
                 reject(new DOMException(`RAD request timeout (id=${id}, op=${req.op})`, "TimeoutError"));
             }, timeoutMs);
 
-            this.#requests.pending.set(id, { resolve: resolve as any, reject, timer });
+            this.#pendingRequests.set(id, { resolve: resolve as any, reject, timer });
 
             const func = async () => {
                 // Check that the request hasn't been aborted
-                if (!this.#requests.pending.has(id)) return;
+                if (!this.#pendingRequests.has(id)) return;
 
                 // Ensure the state is valid to make the ble call
                 this._requireRadCharacteristic("request");
@@ -321,7 +320,7 @@ export class RadBleApi extends BleConnectionHandler {
                 : this._taskQueue.enqueue(func, timeoutMs);
             queuedItem.catch(err => {
                 window.clearTimeout(timer);
-                this.#requests.pending.delete(id);
+                this.#pendingRequests.delete(id);
                 reject(err);
             });
         });
@@ -439,22 +438,22 @@ export class RadBleApi extends BleConnectionHandler {
         */
 
         this._debugLog("RAD response received:", msg);
-        if (!this.#requests.pending.has(msg.id)) return false;
+        if (!this.#pendingRequests.has(msg.id)) return false;
 
-        const p = this.#requests.pending.get(msg.id)!;
+        const p = this.#pendingRequests.get(msg.id)!;
         if (!p) return false;
 
         // RAD can emit accepted + completed; only resolve on terminal stages
         switch (msg.stage) {
             case "failed": {
                 window.clearTimeout(p.timer);
-                this.#requests.pending.delete(msg.id);
+                this.#pendingRequests.delete(msg.id);
                 p.reject(new DOMException(`RAD request failed (id=${msg.id}, op=${msg.stage}): ${msg.code ?? "unknown"} - ${msg.message ?? "no message"}`, "Error"));
                 return true;
             }
             case "completed": {
                 window.clearTimeout(p.timer);
-                this.#requests.pending.delete(msg.id);
+                this.#pendingRequests.delete(msg.id);
                 p.resolve(msg);
                 return true;
             }
