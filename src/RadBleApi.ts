@@ -569,9 +569,12 @@ export class RadBleApi extends BleConnectionHandler {
         return this.sendWithResult<Schema.RadState>({ ...params, req: { op: "state.read" } });
     }
 
-    async readSensor<T = unknown>(params: RadApiBaseParams & { path: string }): Promise<T> {
+    readSensor<T = unknown>(path: string): Promise<T>;
+    readSensor<T = unknown>(params: (RadApiBaseParams & { path: string })): Promise<T>;
+    async readSensor<T = unknown>(arg: RadApiBaseParams & { path: string } | string): Promise<T> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L1052
-        return this.sendWithResult<T>({ ...params, req: { op: "sensor.read", path: params.path }});
+        const opts = this._singleArg(arg, "path");
+        return this.sendWithResult<T>({ ...opts, req: { op: "sensor.read", path: opts.path }});
     }
 
     async getEssentialSnapshot(params: RadApiBaseParams = {}): Promise<unknown> {
@@ -1022,9 +1025,12 @@ export class RadBleApi extends BleConnectionHandler {
      * @returns The value of the setting
      * @requires A valid lease token
      */
-    async readSetting<T = unknown>(params: RadApiBaseParams & { path: string }): Promise<T> {
+    readSetting<T = unknown>(path: string): Promise<T>;
+    readSetting<T = unknown>(params: RadApiBaseParams & { path: string }): Promise<T>;
+    async readSetting<T = unknown>(arg: RadApiBaseParams & { path: string } | string): Promise<T> {
         // Handled by remote abstract command handler, compile time type is unknown
-        return this.sendWithResult<T>({ ...params, req: { op: "setting.read", path: params.path }, lease: this._requireLease()});
+        const opts = this._singleArg(arg, "path");
+        return this.sendWithResult<T>({ ...opts, req: { op: "setting.read", path: opts.path }, lease: this._requireLease()});
     }
 
     /**
@@ -1052,9 +1058,12 @@ export class RadBleApi extends BleConnectionHandler {
      * @param path The path to the setting to reset
      * @requires A valid lease token
      */
-    async resetSetting(params: RadApiBaseParams & { path: string }): Promise<void> {
+    resetSetting<T = unknown>(path: string): Promise<T>;
+    resetSetting<T = unknown>(params: RadApiBaseParams & { path: string }): Promise<T>;
+    async resetSetting(arg: RadApiBaseParams & { path: string } | string): Promise<void> {
         // Handled by abstract command handler, compile time type is unknown
-        await this.send({ ...params, req: { op: "setting.reset", path: params.path }, lease: this._requireLease() });
+        const opts = this._singleArg(arg, "path");
+        await this.send({ ...opts, req: { op: "setting.reset", path: opts.path }, lease: this._requireLease() });
     }
 
     async getDeviceName(params: RadApiBaseParams = {}): Promise<string> {
@@ -1062,9 +1071,12 @@ export class RadBleApi extends BleConnectionHandler {
         return this.readSetting<string>({ ...params, path: "device.name"});
     }
 
-    async setDeviceName(params: RadApiBaseParams & { name: string }): Promise<Schema.RadSetDeviceNameResult> {
+    setDeviceName<T = unknown>(name: string): Promise<T>;
+    setDeviceName<T = unknown>(params: RadApiBaseParams & { name: string }): Promise<T>;
+    async setDeviceName(arg: RadApiBaseParams & { name: string } | string): Promise<Schema.RadSetDeviceNameResult> {
         // https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp#L714
-        return this.writeSetting<Schema.RadSetDeviceNameResult>({ ...params, path: "device.name", args: { value: params.name }});
+        const opts = this._singleArg(arg, "name");
+        return this.writeSetting<Schema.RadSetDeviceNameResult>({ ...opts, path: "device.name", args: { value: opts.name }});
     }
 
     async resetDeviceName(params: RadApiBaseParams = {}): Promise<void> {
@@ -1098,6 +1110,15 @@ export class RadBleApi extends BleConnectionHandler {
 
     #snakeCaseToCamelCase(str: string): string {
         return str.toLowerCase().replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
+    }
+
+    /**
+     * Normalizes a single parameter call for a RadApiBaseParams function into the base object
+     */
+    protected _singleArg<A, K extends keyof Extract<A, object>>(arg: A, key: K): Extract<A, object> {
+        return typeof arg === "object" && arg !== null
+            ? (arg as Extract<A, object>)
+            : ({ [key]: arg } as unknown as Extract<A, object>);
     }
     // #endregion
 }

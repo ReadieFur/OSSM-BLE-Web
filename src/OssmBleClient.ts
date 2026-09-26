@@ -187,25 +187,27 @@ export class OssmBleClient extends RadBleApi {
      * Gets the current position of the speed knob
      * @param raw If true, returns the raw sensor value (0-4096), otherwise returns a percentage (0-100)
      */
-    async getSpeedKnob(params: RadApiBaseParams & { raw: boolean } = { raw: false }): Promise<number> {
+    getSpeedKnob(raw: boolean): Promise<number>;
+    getSpeedKnob(params: RadApiBaseParams & { raw: boolean }): Promise<number>;
+    async getSpeedKnob(arg: RadApiBaseParams & { raw: boolean } | boolean = { raw: false }): Promise<number> {
         /* https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L245
          * https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/board.cpp#L22
          * The OSSM firmware returns the raw sensor value via analogRead and uses a resolution of 12 (0-4096)
          * A percentage value between 0 and 100 is returned if the percent property is requested instead
          */
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params,
-            path: params.raw ? "analog.speedKnob" : "analog.speedKnobPercent"
-        })).value;
+        const opts = this._singleArg(arg, "raw");
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...opts, path: opts.raw ? "analog.speedKnob" : "analog.speedKnobPercent" })).value;
     }
 
     /**
      * @param unfiltered If true, returns the unfiltered sensor value, otherwise returns the calibrated sensor value
      * @returns The current motor current as a raw value (0-4096)
      */
-    async getMotorCurrent(params: RadApiBaseParams & { unfiltered: boolean } = { unfiltered: false }): Promise<number> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params,
-            path: params.unfiltered ? "analog.motorCurrent" : "analog.motorCurrentFiltered",
-        })).value;
+    getMotorCurrent(unfiltered: boolean): Promise<number>;
+    getMotorCurrent(params: RadApiBaseParams & { unfiltered: boolean }): Promise<number>;
+    async getMotorCurrent(arg: RadApiBaseParams & { unfiltered: boolean } | boolean = { unfiltered: false }): Promise<number> {
+        const opts = this._singleArg(arg, "unfiltered");
+        return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...opts, path: opts.unfiltered ? "analog.motorCurrent" : "analog.motorCurrentFiltered" })).value;
     }
 
     async isHomed(params: RadApiBaseParams = {}): Promise<boolean> {
@@ -229,6 +231,7 @@ export class OssmBleClient extends RadBleApi {
     async getMeasuredStroke(params: RadApiBaseParams = {}): Promise<number> {
         return (await this.readSensor<OssmSchema.OssmReadResult<number>>({ ...params, path: "motion.measuredStroke" })).value;
     }
+
 
     /**
      * @returns The target position in millimeters
@@ -265,8 +268,11 @@ export class OssmBleClient extends RadBleApi {
      * @param pin The GPIO pin number to read (0-4)
      * @returns The analogRead value of the pin (0-4096)
      */
-    async readGpioPin(params: RadApiBaseParams & { pin: number }): Promise<boolean> {
-        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>({ ...params, path: `analog.expansion${params.pin}` })).value;
+    readGpioPin(pin: number): Promise<boolean>;
+    readGpioPin(params: RadApiBaseParams & { pin: number }): Promise<boolean>;
+    async readGpioPin(arg: RadApiBaseParams & { pin: number } | number): Promise<boolean> {
+        const opts = this._singleArg(arg, "pin");
+        return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>({ ...opts, path: `analog.expansion${opts.pin}` })).value;
     }
 
     async isEnterButtonPressed(params: RadApiBaseParams = {}): Promise<boolean> {
@@ -294,7 +300,6 @@ export class OssmBleClient extends RadBleApi {
 
     // #region setting.write
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L309
-
     async setGpioPin(params: RadApiBaseParams & { pin: number, mode: OssmSchema.OssmGpioPinMode, value: number }): Promise<void> {
         await this.writeSetting({
             ...params,
@@ -314,28 +319,46 @@ export class OssmBleClient extends RadBleApi {
      * **When** `false`: BLE speed commands (0-100) are used directly as the speed value  
      * Example: BLE command `set:speed:80` → Effective speed = 80%
      */
-    async setSpeedKnobAsLimit(params: RadApiBaseParams & { value: boolean }): Promise<void> {
-        await this.writeSetting({ ...params, path: "setting.speedKnobAsLimit", args: { value: params.value }});
+    setSpeedKnobAsLimit(speedKnobAsLimit: boolean): Promise<void>;
+    setSpeedKnobAsLimit(params: RadApiBaseParams & { value: boolean }): Promise<void>;
+    async setSpeedKnobAsLimit(arg: RadApiBaseParams & { value: boolean } | boolean): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "setting.speedKnobAsLimit", args: { value: opts.value } });
     }
 
-    async setLatencyCompensation(params: RadApiBaseParams & { value: boolean }): Promise<void> {
-        await this.writeSetting({ ...params, path: "setting.latencyCompensation", args: { value: params.value }});
+    setLatencyCompensation(enabled: boolean): Promise<void>;
+    setLatencyCompensation(params: RadApiBaseParams & { value: boolean }): Promise<void>;
+    async setLatencyCompensation(arg: RadApiBaseParams & { value: boolean } | boolean): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "setting.latencyCompensation", args: { value: opts.value }});
     }
 
-    async setDisplayMetric(params: RadApiBaseParams & { value: boolean }): Promise<void> {
-        await this.writeSetting({ ...params, path: "setting.displayMetric", args: { value: params.value }});
+    setDisplayMetrics(enabled: boolean): Promise<void>;
+    setDisplayMetrics(params: RadApiBaseParams & { value: boolean }): Promise<void>;
+    async setDisplayMetrics(arg: RadApiBaseParams & { value: boolean } | boolean): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "setting.displayMetric", args: { value: opts.value }});
     }
 
-    async setAfterHomingPosition(params: RadApiBaseParams & { value: number }): Promise<void> {
-        await this.writeSetting({ ...params, path: "setting.afterHomingPosition", args: { value: params.value }});
+    setAfterHomingPosition(position: number): Promise<void>;
+    setAfterHomingPosition(params: RadApiBaseParams & { value: number }): Promise<void>;
+    async setAfterHomingPosition(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "setting.afterHomingPosition", args: { value: opts.value }});
     }
 
-    async setMqttPublishFrequency(params: RadApiBaseParams & { value: number }): Promise<void> {
-        await this.writeSetting({ ...params, path: "setting.mqttPublishFrequency", args: { value: params.value }});
+    setMqttPublishFrequency(frequencyHz: number): Promise<void>;
+    setMqttPublishFrequency(params: RadApiBaseParams & { value: number }): Promise<void>;
+    async setMqttPublishFrequency(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "setting.mqttPublishFrequency", args: { value: opts.value }});
     }
 
-    async setSpeedBle(params: RadApiBaseParams & { value: number }): Promise<void> {
-        await this.writeSetting({ ...params, path: "motion.speedBle", args: { value: params.value }});
+    setSpeedBle(bleSpeed: number): Promise<void>;
+    setSpeedBle(params: RadApiBaseParams & { value: number }): Promise<void>;
+    async setSpeedBle(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "motion.speedBle", args: { value: opts.value }});
     }
 
     // override async setDeviceName(name: string, timeoutMs?: number): Promise<void> {
@@ -346,33 +369,51 @@ export class OssmBleClient extends RadBleApi {
      * Sets the active pattern for the StrokeEngine
      * @param patternIdx The index of the pattern to set. See {@link}
      */
-    async setPattern(params: RadApiBaseParams & { patternIdx: number }): Promise<void> {
-        await this.writeSetting({ ...params, path: "motion.pattern", args: { value: params.patternIdx }});
+    setPattern(patternIdx: number): Promise<void>;
+    setPattern(params: RadApiBaseParams & { patternIdx: number }): Promise<void>;
+    async setPattern(arg: RadApiBaseParams & { patternIdx: number } | number): Promise<void> {
+        const opts = this._singleArg(arg, "patternIdx");
+        await this.writeSetting({ ...opts, path: "motion.pattern", args: { value: opts.patternIdx }});
     }
 
     /** @param value The speed value between 0 and 100 */
-    async setSpeed(params: RadApiBaseParams & { value: number }): Promise<void> {
-        await this.writeSetting({ ...params, path: "motion.speed", args: { value: params.value }, isPriority: true });
+    setSpeed(speed: number): Promise<void>;
+    setSpeed(params: RadApiBaseParams & { value: number }): Promise<void>;
+    async setSpeed(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "motion.speed", args: { value: opts.value }, isPriority: true });
     }
 
     /** @param value The stroke length value between 0 and 100 */
-    async setStroke(params: RadApiBaseParams & { value: number }): Promise<void> {
-        await this.writeSetting({ ...params, path: "motion.stroke", args: { value: params.value }});
+    setStroke(stroke: number): Promise<void>;
+    setStroke(params: RadApiBaseParams & { value: number }): Promise<void>;
+    async setStroke(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "motion.stroke", args: { value: opts.value }});
     }
 
     /** @param value The depth value between 0 and 100 */
-    async setDepth(params: RadApiBaseParams & { value: number }): Promise<void> {
-        await this.writeSetting({ ...params, path: "motion.depth", args: { value: params.value }});
+    setDepth(depth: number): Promise<void>;
+    setDepth(params: RadApiBaseParams & { value: number }): Promise<void>;
+    async setDepth(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "motion.depth", args: { value: opts.value }});
     }
 
     /** @param value The sensation value between 0 and 100 */
-    async setSensation(params: RadApiBaseParams & { value: number }): Promise<void> {
-        await this.writeSetting({ ...params, path: "motion.sensation", args: { value: params.value }});
+    setSensation(sensation: number): Promise<void>;
+    setSensation(params: RadApiBaseParams & { value: number }): Promise<void>;
+    async setSensation(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "motion.sensation", args: { value: opts.value }});
     }
 
     /** @param value The buffer value between 0 and 100 */
-    async setBuffer(params: RadApiBaseParams & { value: number }): Promise<void> {
-        await this.writeSetting({ ...params, path: "motion.buffer", args: { value: params.value }});
+    setBuffer(buffer: number): Promise<void>;
+    setBuffer(params: RadApiBaseParams & { value: number }): Promise<void>;
+    async setBuffer(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
+        const opts = this._singleArg(arg, "value");
+        await this.writeSetting({ ...opts, path: "motion.buffer", args: { value: opts.value }});
     }
     // #endregion
 
@@ -383,8 +424,11 @@ export class OssmBleClient extends RadBleApi {
         await this.send({ ...params, req: { op: "event.emit", path: params.path, args: params.args }, lease: this._requireLease() });
     }
 
-    async emitButtonEvent(params: RadApiBaseParams & { clickType: OssmSchema.OssmButtonClickType }): Promise<void> {
-        await this.#emitEvent({ ...params, path: "button.enter", args: { event: params.clickType }});
+    emitButtonEvent(clickType: OssmSchema.OssmButtonClickType): Promise<void>;
+    emitButtonEvent(params: RadApiBaseParams & { clickType: OssmSchema.OssmButtonClickType }): Promise<void>;
+    async emitButtonEvent(arg: RadApiBaseParams & { clickType: OssmSchema.OssmButtonClickType } | OssmSchema.OssmButtonClickType): Promise<void> {
+        const opts = this._singleArg(arg, "clickType");
+        await this.#emitEvent({ ...opts, path: "button.enter", args: { event: opts.clickType }});
     }
 
     async emitReturnToMenuEvent(params: RadApiBaseParams = {}): Promise<void> {
@@ -415,12 +459,15 @@ export class OssmBleClient extends RadBleApi {
     // #region target.set
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L465
 
-    async navigateTo(params: RadApiBaseParams & { menu: OssmSchema.OssmMenu }): Promise<void> {
+    navigateTo(menu: OssmSchema.OssmMenu): Promise<void>;
+    navigateTo(params: RadApiBaseParams & { menu: OssmSchema.OssmMenu }): Promise<void>;
+    async navigateTo(arg: RadApiBaseParams & { menu: OssmSchema.OssmMenu } | OssmSchema.OssmMenu): Promise<void> {
+        const opts = this._singleArg(arg, "menu");
         const result = await this.send<{ deferred?: true }>({
-            ...params,
+            ...opts,
             req: {
                 op: "target.set",
-                path: `target.${params.menu}`
+                path: `target.${opts.menu}`
             },
             lease: this._requireLease(),
             isPriority: true
@@ -464,7 +511,8 @@ export class OssmBleClient extends RadBleApi {
     /**
      * @param position The new target position to move to
      * @param durationMs The time in milliseconds it takes to transition to the new position
-     * @note Requires the device to be in {@link OssmSchema.OssmMenu.Streaming} mode
+     * @note Requires the device to be in {@link OssmSchema.OssmMenu.Streaming} mode  
+     * *It is also recommended to set the stroke, depth, speed & sensation values to 100 in order to get a more "absolute" positioning mode*
      */
     async streamPosition(params: RadApiBaseParams & { position: number, durationMs: number }): Promise<void> {
         await this.send({
@@ -539,9 +587,9 @@ export class OssmBleClient extends RadBleApi {
      * @param rateHz Rate in Hz to stream at. If omitted, the device will use its default rate for the stream
      * @requires A valid lease token
      */
-    override async startStream(params: RadApiBaseParams & { surface: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
+    async startStream(params: RadApiBaseParams & { surface: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
     /** @deprecated Use one of the `surface` overload instead */
-    override async startStream(params: RadApiBaseParams & { path: string, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
+    async startStream(params: RadApiBaseParams & { path: string, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
     /** @deprecated Use one of the `surface` overload instead */
     override async startStream(params: RadApiBaseParams & { path: string, surface: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult> {
         return super.startStream({
@@ -552,9 +600,9 @@ export class OssmBleClient extends RadBleApi {
     }
 
     // God I don't like how overloads work in JS
-    override async updateStream(params: RadApiBaseParams & { surface?: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
+    async updateStream(params: RadApiBaseParams & { surface?: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
     /** @deprecated Use one of the `surface` overload instead */
-    override async updateStream(params: RadApiBaseParams & { path: string, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
+    async updateStream(params: RadApiBaseParams & { path: string, rateHz?: number }): Promise<RadSchema.RadStreamResult>;
     /** @deprecated Use one of the `surface` overload instead */
     override async updateStream(params: RadApiBaseParams & { path: string, surface?: OssmSchema.OssmSurface, rateHz?: number }): Promise<RadSchema.RadStreamResult> {
         if (!params.path && !params.surface && !params.rateHz)
