@@ -1,6 +1,6 @@
 {
   "name": "@readiefur/ossm-ble-web",
-  "version": "2.0.202609261907",
+  "version": "2.0.202609261922",
   "type": "module",
   "main": "./dist/ossm-ble-web.js",
   "module": "./dist/ossm-ble-web.js",
