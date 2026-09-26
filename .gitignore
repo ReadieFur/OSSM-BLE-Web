@@ -1,14 +1,25 @@
+# Build & TypeScript outputs
 node_modules/
-.DS_Store
-src/*.map
-src/*.js
-src/*.d.ts
-tests/*.map
-tests/*.js
-tests/*.d.ts
-dev/*.map
-dev/*.js
-dev/*.d.ts
-tsconfig.tsbuildinfo
-.vscode/
 dist/
+*.tsbuildinfo
+
+# Virtual entry point (generated in node_modules by tsup.config.ts)
+src/.virtual_entry.ts
+
+# Testing
+.vitest/
+test-results/
+playwright-report/
+
+# IDE & Editor files
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+# Logs
+
+# System Files
+.DS_Store
+Thumbs.db

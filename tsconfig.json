@@ -1,49 +1,20 @@
 {
   "compilerOptions": {
-    // Language settings
-    "target": "esnext",
-    "lib": [
-      "esnext",
-      "dom",
-      "webworker"
-    ],
-    "module": "esnext",
+    "target": "ESNext",
+    "module": "ESNext",
     "moduleResolution": "bundler",
-
-    // Other
-    "sourceMap": true,
-    "declaration": true,
-    "isolatedDeclarations": true,
-    "removeComments": false,
-
-    // Typechecking
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["node", "web-bluetooth"],
     "strict": true,
-    "noImplicitAny": true,
-    "forceConsistentCasingInFileNames": true,
-    "noImplicitReturns": true,
-    "noImplicitOverride": true,
-
-    // Recommended
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "noUncheckedSideEffectImports": true,
-    "moduleDetection": "force",
+    "declaration": true,
+    "emitDeclarationOnly": true,
     "skipLibCheck": true,
-
-    // Misc
-    "preserveWatchOutput": true,
-
-    // esbuild
-    "noEmit": true
-  },
-  "watchOptions": {
-    // Fix for working on network drives
-    "watchFile": "dynamicPriorityPolling",
-    "watchDirectory": "dynamicPriorityPolling",
-    "fallbackPolling": "dynamicpriority"
+    "isolatedModules": true
   },
   "include": [
-    "src/**/*.ts",
-    "dev/**/*.ts",
+    "src/**/*",
+    "test/**/*",
+    "tsup.config.ts",
+    "vitest.config.ts"
   ]
 }

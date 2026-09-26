@@ -3,6 +3,11 @@ name: Build
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: "The commit SHA or ref to checkout"
+        required: false
+        type: string
 
 jobs:
   build:
@@ -11,6 +16,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # If a ref is provided (like from publish.yml), use it. Otherwise, use the default.
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -21,5 +29,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Type check
+        run: npm run typecheck
+
       - name: Run production build
-        run: npm run build:min
+        run: npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-files
+          path: dist/
