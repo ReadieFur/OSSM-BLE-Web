@@ -9,7 +9,7 @@ import * as RadSchema from "./RadProtocolSchema";
 // https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp#L570
 
 export interface OssmStateSnapshot extends RadSchema.RadState {
-    state: string;
+    state: OssmStateString;
 }
 
 export interface OssmEssentialSnapshot {
@@ -142,3 +142,56 @@ export interface OssmBasicPatternInfo {
 export interface OssmPattern extends OssmBasicPatternInfo {
     description: string;
 }
+
+export enum OssmStateString {
+    /** Initializing */
+    Idle = "idle",
+    /** Homing sequence active */
+    Homing = "homing",
+    /** Forward homing in progress */
+    HomingForward = "homing.forward",
+    /** Backward homing in progress */
+    HomingBackward = "homing.backward",
+    /** Main menu displayed */
+    Menu = "menu",
+    /** Menu idle state */
+    MenuIdle = "menu.idle",
+    /** Simple penetration mode */
+    SimplePenetration = "simplePenetration",
+    /** Simple penetration idle */
+    SimplePenetrationIdle = "simplePenetration.idle",
+    /** Pre-flight checks */
+    SimplePenetrationPreflight = "simplePenetration.preflight",
+    /** Stroke engine mode */
+    StrokeEngine = "strokeEngine",
+    /** Stroke engine idle */
+    StrokeEngineIdle = "strokeEngine.idle",
+    /** Pre-flight checks */
+    StrokeEnginePreflight = "strokeEngine.preflight",
+    /** Pattern selection */
+    StrokeEnginePattern = "strokeEngine.pattern",
+    /** Update mode */
+    Update = "update",
+    /** Checking for updates */
+    UpdateChecking = "update.checking",
+    /** Update in progress */
+    UpdateUpdating = "update.updating",
+    /** Update idle */
+    UpdateIdle = "update.idle",
+    /** WiFi setup mode */
+    Wifi = "wifi",
+    /** WiFi setup idle */
+    WifiIdle = "wifi.idle",
+    /** Help screen */
+    Help = "help",
+    /** Help idle */
+    HelpIdle = "help.idle",
+    /** Error state */
+    Error = "error",
+    /** Error idle */
+    ErrorIdle = "error.idle",
+    /** Error help */
+    ErrorHelp = "error.help",
+    /** Restart state */
+    Restart = "restart",
+};

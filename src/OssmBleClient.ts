@@ -56,7 +56,7 @@ export class OssmBleClient extends RadBleApi {
             surfaceEventDispatchers[surfaceKey] = new SingleEventSource() as any;
         this.#onSurface = surfaceEventDispatchers;
 
-        super.onRadTelemetry["sensorStream"].subscribe(this.#onStreamSignature);
+        super.onRadTelemetry.sensorStream.subscribe(this.#onStreamSignature);
     }
 
     /**
@@ -69,7 +69,7 @@ export class OssmBleClient extends RadBleApi {
     // #region Snapshots
     // Shadow the base class getStateSnapshot to return the OSSM-specific StateSnapshot type
     override async getStateSnapshot(params: RadApiBaseParams = {}): Promise<OssmSchema.OssmStateSnapshot> {
-        const snapshot = await super.getStateSnapshot(params);
+        const snapshot = await super.getStateSnapshot(params) as OssmSchema.OssmStateSnapshot;
         // this.#onSurface[RadSchema.RadSurface.State].dispatch(snapshot);
         return snapshot;
     }
@@ -628,7 +628,10 @@ export class OssmBleClient extends RadBleApi {
 
     async #onStream(t: RadTelemetry): Promise<void> {
         const streamTelemetry = t as RadSchema.RadStream;
-        if (!streamTelemetry.surface || !(streamTelemetry.surface in OSSM_SURFACE_STREAM_MAP)) return;
+    
+        if (!streamTelemetry.surface || !(streamTelemetry.surface in OSSM_SURFACE_STREAM_MAP))
+            return;
+
         (this.#onSurface[streamTelemetry.surface as OssmSchema.OssmSurface] as SingleEventSource<[any]>).dispatch(streamTelemetry.data);
     }
     // #endregion
