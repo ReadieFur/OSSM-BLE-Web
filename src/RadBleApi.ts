@@ -171,45 +171,40 @@ export class RadBleApi extends BleConnectionHandler {
             spec
         ] as const);
 
+        const deviceChars = new Map((await gattService.getCharacteristics()).map(c => [c.uuid.toLowerCase(), c]));
         for (const [key, spec] of entries) {
             const charUuid = `${uuidParts[0]}-${uuidParts[1]}-${uuidParts[2]}-${spec.suffix}-${uuidParts[4]}`;
+            const char = deviceChars.get(charUuid);
 
-            try {
-                const char = await gattService.getCharacteristic(charUuid);
+            if (!char) {
+                if (spec.required)
+                    throw new DOMException(`[RadBleApi] Characteristic ${key} was required but not found on the target device`, "NotFoundError");
+                else if (this.debug)
+                    console.warn(`[RadBleApi] Optional characteristic ${key} was not present on the target device`);
+                continue;
+            }
 
-                // Ensure that the char matches the expected notification type (either notify/indicate or none)
-                const metaHasNotifyOrIndicate = spec.properties.some(p => p === "notify" || p === "indicate");
-                const charHasNotifyOrIndicate = char.properties.notify || char.properties.indicate;
-                if (metaHasNotifyOrIndicate && !charHasNotifyOrIndicate) {
-                    /* It seems that, at least from testing against Ossm firmware, the spec doesn't always match the device...
-                     * So instead of failing outright, if it was an optional property that failed, warn instead
-                     */
-                    const message = `[RadBleApi] ${spec.required ? 'Required' : 'Optional'} characteristic ${key} was expected to support notify/indicate`
-                    if (spec.required)
-                        throw new DOMException(message, "NotSupportedError");
-                    else if (this.debug)
-                        console.warn(message)
-                }
+            // Ensure that the char matches the expected notification type (either notify/indicate or none)
+            const metaHasNotifyOrIndicate = spec.properties.some(p => p === "notify" || p === "indicate");
+            const charHasNotifyOrIndicate = char.properties.notify || char.properties.indicate;
+            if (metaHasNotifyOrIndicate && !charHasNotifyOrIndicate) {
+                /* It seems that, at least from testing against Ossm firmware, the spec doesn't always match the device...
+                    * So instead of failing outright, if it was an optional property that failed, warn instead
+                    */
+                const message = `[RadBleApi] ${spec.required ? 'Required' : 'Optional'} characteristic ${key} was expected to support notify/indicate`
+                if (spec.required)
+                    throw new DOMException(message, "NotSupportedError");
+                else if (this.debug)
+                    console.warn(message)
+            }
 
-                this.#radCharacteristics[key] = char;
-                this.#radCharacteristicGattMap.set(char, key);
+            this.#radCharacteristics[key] = char;
+            this.#radCharacteristicGattMap.set(char, key);
 
-                if (charHasNotifyOrIndicate) {
-                    char.addEventListener("characteristicvaluechanged", this.#handleIncomingTelemetrySignature);
-                    char.startNotifications();
-                }
-
-            } catch (err) {
-                if (err instanceof DOMException && err.name === "NotFoundError") {
-                    if (spec.required)
-                        throw new DOMException(`[RadBleApi] Characteristic ${key} was required but not found`, "NotFoundError");
-
-                    if (this.debug)
-                        console.warn(`[RadBleApi] Optional characteristic ${key} was not present on the target device`)
-                } else {
-                    // Re-throw error if it wasn't expected
-                    throw err;
-                }
+            if (charHasNotifyOrIndicate) {
+                console.log("subscribe");
+                char.addEventListener("characteristicvaluechanged", this.#handleIncomingTelemetrySignature);
+                char.startNotifications();
             }
         }
 
@@ -751,7 +746,7 @@ export class RadBleApi extends BleConnectionHandler {
              * (due to how I handle replacing activators internally, too complex for me to rewrite it to support generic CTs a day after I just made the time based approach)
             */
             // TIL 'using' is a keyword in JS for disposable objects :3
-            using activatorCts = CancellationTokenSource.createWithTimeout(timeoutMs);
+            const activatorCts = CancellationTokenSource.createWithTimeout(timeoutMs);
 
             const activatorTask = async () => {
                 // Don't activate a stream if nothing is waiting on it
@@ -794,6 +789,8 @@ export class RadBleApi extends BleConnectionHandler {
                     const currentActivator = this.#pendingSnapshots.streamActivators.get(surface);
                     if (currentActivator && currentActivator.signature === activatorTask)
                         this.#pendingSnapshots.streamActivators.delete(surface);
+
+                    activatorCts.dispose();
                 }
             };
 

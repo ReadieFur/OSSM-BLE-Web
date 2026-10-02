@@ -63,10 +63,18 @@ export abstract class BleConnectionHandler implements Disposable {
     //#region Connection lifecycle
     /**
      * Begins automatic connection and lifecycle management
+     * @returns `true` if the initial device connection attempt was successful, otherwise `false`
+     * @note This does not throw an error since if `autoReconnect` is `true` it will attempt to reconnect
      */
-    async begin(): Promise<void> {
-        try { await this._connect(); }
-        catch (error) { this._debugLog("Initial connection attempt failed.", error); }
+    async begin(): Promise<boolean> {
+        try {
+            await this._connect();
+            return true;
+        }
+        catch (error) {
+            if (this.debug) console.warn("Initial connection attempt failed.", error);
+            return false;
+        }
     }
 
     /**
