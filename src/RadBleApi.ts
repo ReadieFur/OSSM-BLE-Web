@@ -313,7 +313,6 @@ export class RadBleApi extends BleConnectionHandler {
                     // Ensure the state is valid to make the ble call
                     this._requireRadCharacteristic("request");
                     await this._radService.request!.writeValueWithoutResponse(payload());
-    
                 };
                 const queuedItem = params.isPriority
                     ? this._taskQueue.prepend(func, ct)

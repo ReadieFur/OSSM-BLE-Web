@@ -134,35 +134,57 @@ export class OssmLiteClient extends BleConnectionHandler {
     }
 
     // #region Common
-    async setSpeed(speed: number, ct?: ICancellationToken): Promise<void> {
+    getSpeed(ct?: ICancellationToken): Promise<number> {
+        return this.#read(this.#characteristics.common.speed, Number.parseFloat, ct);
+    }
+    setSpeed(speed: number, ct?: ICancellationToken): Promise<void> {
         enforceRange(speed, 0, 100);
-        await this.#fastWrite(this.#characteristics.common.speed, this._enc.encode(speed.toString()), ct);
+        return this.#fastWrite(this.#characteristics.common.speed, speed, ct);
     }
-
-    async setMaxDepth(maxDepth: number, ct?: ICancellationToken): Promise<void> {
+    
+    getMaxDepth(ct?: ICancellationToken): Promise<number> {
+        return this.#read(this.#characteristics.common.maxDepth, Number.parseFloat, ct);
+    }
+    setMaxDepth(maxDepth: number, ct?: ICancellationToken): Promise<void> {
         enforceRange(maxDepth, 0, 100);
-        await this.#fastWrite(this.#characteristics.common.maxDepth, this._enc.encode(maxDepth.toString()), ct);
+        return this.#fastWrite(this.#characteristics.common.maxDepth, maxDepth, ct);
     }
 
-    async setMinDepth(minDepth: number, ct?: ICancellationToken): Promise<void> {
+    getMinDepth(ct?: ICancellationToken): Promise<number> {
+        return this.#read(this.#characteristics.common.minDepth, Number.parseFloat, ct);
+    }
+    setMinDepth(minDepth: number, ct?: ICancellationToken): Promise<void> {
         enforceRange(minDepth, 0, 100);
-        await this.#fastWrite(this.#characteristics.common.minDepth, this._enc.encode(minDepth.toString()), ct);
+        return this.#fastWrite(this.#characteristics.common.minDepth, minDepth, ct);
     }
 
-    async setStreamInput(position: number, duration: number, ct?: ICancellationToken): Promise<void> {
+    async getStreamInput(ct?: ICancellationToken): Promise<{position: number, duration: number}> {
+        const [position, duration] = (await this.#read(this.#characteristics.common.streamInput, ct)).split(":", 2);
+        return {
+            position: Number.parseFloat(position),
+            duration: Number.parseFloat(duration)
+        };
+    }
+    setStreamInput(position: number, duration: number, ct?: ICancellationToken): Promise<void> {
         enforceRange(position, 0, 100, "Position must be between 0 and 100");
-        await this.#fastWrite(this.#characteristics.common.streamInput, this._enc.encode(`${position}:${duration}`), ct);
+        return this.#fastWrite(this.#characteristics.common.streamInput, `${position}:${duration}`, ct);
     }
 
-    async setSensation(sensation: number, ct?: ICancellationToken): Promise<void> {
+    getSensation(ct?: ICancellationToken): Promise<number> {
+        return this.#read(this.#characteristics.common.sensation, Number.parseFloat, ct);
+    }
+    setSensation(sensation: number, ct?: ICancellationToken): Promise<void> {
         enforceRange(sensation, 0, 100);
-        await this.#fastWrite(this.#characteristics.common.sensation, this._enc.encode(sensation.toString()), ct);
+        return this.#fastWrite(this.#characteristics.common.sensation, sensation, ct);
     }
 
-    async setPattern(pattern: number, ct?: ICancellationToken): Promise<void> {
+    getPattern(ct?: ICancellationToken): Promise<number> {
+        return this.#read(this.#characteristics.common.pattern, Number.parseFloat, ct);
+    }
+    setPattern(pattern: number, ct?: ICancellationToken): Promise<void> {
         if (Number.isInteger(pattern)) throw new DOMException("Pattern index must be an integer", "IndexSizeError");
         enforceRange(pattern, 0, Number.MAX_SAFE_INTEGER, "Pattern index must be positive");
-        await this.#fastWrite(this.#characteristics.common.pattern, this._enc.encode(pattern.toString()), ct);
+        return this.#fastWrite(this.#characteristics.common.pattern, pattern, ct);
     }
 
     async *getPatterns(ct?: ICancellationToken): AsyncGenerator<OssmSchema.OssmPattern, void, unknown> {
@@ -194,10 +216,32 @@ export class OssmLiteClient extends BleConnectionHandler {
     // #endregion
 
     // #region Helpers
-    #fastWrite(char: BluetoothRemoteGATTCharacteristic, val: BufferSource, ct?: ICancellationToken): Promise<void> {
+    #fastWrite(char: BluetoothRemoteGATTCharacteristic, val: string | number, ct?: ICancellationToken): Promise<void> {
         const cts = !ct && this.defaultTimeoutMs ? CancellationTokenSource.createWithTimeout(this.defaultTimeoutMs) : undefined;
         ct = ct ?? cts?.token ?? CancellationToken.None;
-        return this._taskQueue.enqueue(() => char.writeValueWithoutResponse(val), ct);
+
+        const buf = this._enc.encode(val === "string" ? val : (val as number).toString());
+        return this._taskQueue.enqueue(() => char.writeValueWithoutResponse(buf), ct);
+    }
+
+    #read(char: BluetoothRemoteGATTCharacteristic, ct?: ICancellationToken): Promise<string>;
+    #read<T>(char: BluetoothRemoteGATTCharacteristic, parser: (value: string) => T, ct?: ICancellationToken): Promise<T>;
+    async #read<T>(char: BluetoothRemoteGATTCharacteristic, parserOrCt?: ((value: string) => T) | ICancellationToken, ct?: ICancellationToken): Promise<any> {
+        let cancellationToken: ICancellationToken | undefined;
+        let parser: ((value: string) => T) | undefined;
+        if (typeof parserOrCt === "function") {
+            parser = parserOrCt;
+            cancellationToken = ct;
+        } else {
+            cancellationToken = parserOrCt;
+            parser = undefined;
+        }
+
+        const cts = !cancellationToken && this.defaultTimeoutMs ? CancellationTokenSource.createWithTimeout(this.defaultTimeoutMs) : undefined;
+        cancellationToken = cancellationToken ?? cts?.token ?? CancellationToken.None;
+
+        const response = this._dec.decode(await this._taskQueue.enqueue(() => char.readValue(), cancellationToken));
+        return parser ? parser(response) : (response as unknown as T);
     }
     // #endregion
 }
