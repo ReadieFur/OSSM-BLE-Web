@@ -16,6 +16,28 @@ import * as OssmSchema from "./OssmProtocolSchema";
 import { SingleEvent, SingleEventSource } from "./SingleEvent";
 // #endregion
 
+// #region Common codecs
+type LiteCodec<T> = {
+    enc: (v: T) => string;
+    dec: (v: string) => T;
+};
+
+const LITE_CODECS = {
+    float: {
+        enc: (v: number) => v.toString(),
+        dec: v => Number.parseFloat(v)
+    },
+    int: {
+        enc: (v: number) => v.toString(),
+        dec: v => Number.parseInt(v)
+    },
+    string: {
+        enc: (v: string) => v,
+        dec: v => v
+    }
+} as const satisfies Record<string, LiteCodec<any>>
+// #endregion
+
 // #region BLE Specification
 /*
  * Define all BLE characteristics here
@@ -29,14 +51,16 @@ const LITE_COMMON_UUID_BASE_1 = "4f53534d-436f-6d6d-6f6e-";
 const LITE_COMMON_UUID_BASE_2 = "4f53534d-506f-7369-7469-";
 const LITE_COMMON_UUID_BASE_3 = "4f53534d-456e-6769-6e65-";
 
+type LiteSpecSkeletonCharacteristic = {
+    uuid: string;
+    properties: readonly ("read" | "write" | "writeWithoutResponse" | "notify")[];
+} & Partial<LiteCodec<any>>;
+
 type LiteSpecSkeleton = {
     [key: string]: {
         serviceUuid: string;
         characteristics: {
-            [charKey: string]: {
-                uuid: string;
-                properties: readonly ("read" | "write" | "writeWithoutResponse" | "notify")[];
-            } & Partial<LiteCodec<any>>;
+            [charKey: string]: LiteSpecSkeletonCharacteristic;
         };
     };
 };
@@ -86,37 +110,22 @@ const LITE_BLE_SPEC = {
 } as const satisfies LiteSpecSkeleton;
 // #endregion
 
-// #region Common codecs
-type LiteCodec<T> = {
-    enc: (v: T) => string;
-    dec: (v: string) => T;
-};
-
-const LITE_CODECS = {
-    float: {
-        enc: (v: number) => v.toString(),
-        dec: v => Number.parseFloat(v)
-    },
-    int: {
-        enc: (v: number) => v.toString(),
-        dec: v => Number.parseInt(v)
-    },
-    string: {
-        enc: (v: string) => v,
-        dec: v => v
-    }
-} as const satisfies Record<string, LiteCodec<any>>
-// #endregion
-
 // #region Type generators
 /* oO0Oo Very magic voodoo shit! oO0Oo */
 
 type LiteSpec = typeof LITE_BLE_SPEC;
 
+type LiteGatts = {
+    [S in keyof LiteSpec]: {
+        [C in keyof (LiteSpec)[S]["characteristics"]]: BluetoothRemoteGATTCharacteristic;
+    }
+};
+
 type LiteHasProperty<Props extends readonly string[], Target extends string> = Target extends Props[number] ? true : false;
 
 type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
 
+type LiteGetter<T> = (ct?: CancellationToken) => Promise<T>;
 type LiteGetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
     -readonly [ServiceKey in keyof T]: {
         -readonly [CharKey in keyof T[ServiceKey]["characteristics"] as CharKey extends string
@@ -128,12 +137,11 @@ type LiteGetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
                     : never
                 : never
             : never
-        ]: (ct?: any) => Promise<
-            T[ServiceKey]["characteristics"][CharKey] extends { dec: (v: string) => infer R } ? R : never // Infer the method parameters & return type from the decoder
-        >;
+        ]: LiteGetter<T[ServiceKey]["characteristics"][CharKey] extends { dec: (v: string) => infer R } ? R : never>; // Infer the method parameters & return type from the decoder;
     };
 }[keyof T]>;
 
+type LiteSetter<T> = (v: T, ct?: CancellationToken) => Promise<void>;
 type LiteSetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
     -readonly [ServiceKey in keyof T]: {
         -readonly [CharKey in keyof T[ServiceKey]["characteristics"] as CharKey extends string
@@ -146,20 +154,13 @@ type LiteSetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
                     : never
                 : never
             : never
-        ]: (
-            value: T[ServiceKey]["characteristics"][CharKey] extends { enc: (v: infer V) => string } ? V : never,
-            ct?: any
-        ) => Promise<void>;
+        ]: LiteSetter<T[ServiceKey]["characteristics"][CharKey] extends { enc: (v: infer V) => string } ? V : never>;
     };
 }[keyof T]>;
 
 type LiteMemberGenerator<T extends LiteSpecSkeleton> = LiteGetterGenerator<T> & LiteSetterGenerator<T>;
 
 type OssmLiteClientGenerated = Omit<LiteMemberGenerator<LiteSpec>, keyof OssmLiteClientImpl>;
-
-type LiteRuntimeCharacteristic = {
-    characteristic: BluetoothRemoteGATTCharacteristic,
-} & Partial<LiteCodec<any>>;
 // #endregion
 
 // #region Class implementation
@@ -179,8 +180,9 @@ class OssmLiteClientImpl extends BleConnectionHandler {
 
     protected readonly _enc = new TextEncoder();
     protected readonly _dec = new TextDecoder();
-    
     #defaultTimeoutMs = 6000;
+    #characteristics = {} as LiteGatts;
+
     get defaultTimeoutMs(): number | null { return this.#defaultTimeoutMs == -1 ? null : this.#defaultTimeoutMs; }
     set defaultTimeoutMs(value: number) {
         if (value < -1 || Number.isNaN(value))
@@ -191,38 +193,32 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     private get generated(): OssmLiteClientGenerated { return this as unknown as OssmLiteClientGenerated; }
     constructor(device: BluetoothDevice) {
         super(device);
+        this.#clearGenerated();
     }
 
-    protected async _setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void> {
+    // #region Dynamic method generators
+    #clearGenerated(): void {
         for (const [serviceKey, serviceSpec] of Object.entries(LITE_BLE_SPEC as LiteSpecSkeleton)) {
-            const gattService = await gatt.getPrimaryService(serviceSpec.serviceUuid);
-            const deviceChars = new Map((await gattService.getCharacteristics()).map(c => [c.uuid.toLowerCase(), c]));
-
             for (const charKey of Object.keys(serviceSpec.characteristics)) {
                 const charSpec = serviceSpec.characteristics[charKey];
-
-                const char = deviceChars.get(charSpec.uuid.toLowerCase());
-                if (!char) throw new DOMException(`[OssmLiteClient] Characteristic ${charKey} not found`, "NotFoundError");
-
-                const runtimeChar: LiteRuntimeCharacteristic = {
-                    characteristic: char,
-                };
 
                 for (const prop of charSpec.properties) {
                     switch (prop) {
                         case "read": {
                             if (!charSpec.dec) break;
+                            (this.generated as any as Record<string, LiteGetter<unknown>>)[`get${OssmLiteClientImpl.#upperFirst(charKey)}`] =
+                                ct => { throw new DOMException("Not ready", "InvalidStateError"); };
                             break;
                         }
-                        case "write": {
-                            if (!charSpec.enc) break;
-                            break;
-                        }
+                        case "write":
                         case "writeWithoutResponse": {
-                            if (!charSpec.enc) break;
+                            if (charSpec.properties.includes("writeWithoutResponse") || !charSpec.enc) break;
+                            (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
+                                (v, ct) => { throw new DOMException("Not ready", "InvalidStateError"); };
                             break;
                         }
                         case "notify": {
+                            // TODO
                             break;
                         }
                     }
@@ -230,6 +226,109 @@ class OssmLiteClientImpl extends BleConnectionHandler {
             }
         }
     }
+
+    protected async _setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void> {
+        this.#characteristics = {} as LiteGatts;
+
+        for (const [serviceKey, serviceSpec] of Object.entries(LITE_BLE_SPEC as LiteSpecSkeleton)) {
+            const gattService = await gatt.getPrimaryService(serviceSpec.serviceUuid);
+            const deviceChars = new Map((await gattService.getCharacteristics()).map(c => [c.uuid.toLowerCase(), c]));
+
+            const serviceCharsObj = {} as Record<string, BluetoothRemoteGATTCharacteristic>;
+
+            for (const charKey of Object.keys(serviceSpec.characteristics)) {
+                const charSpec = serviceSpec.characteristics[charKey];
+
+                const char = deviceChars.get(charSpec.uuid.toLowerCase());
+                if (!char) throw new DOMException(`[OssmLiteClient] Characteristic ${charKey} not found`, "NotFoundError");
+
+                serviceCharsObj[charKey] = char;
+
+                for (const prop of charSpec.properties) {
+                    switch (prop) {
+                        case "read": {
+                            if (!charSpec.dec) break;
+                            (this.generated as any as Record<string, LiteGetter<unknown>>)[`get${OssmLiteClientImpl.#upperFirst(charKey)}`] =
+                                async ct => charSpec.dec!(await this.#read(char, ct));
+                            break;
+                        }
+                        case "write": {
+                            if (charSpec.properties.includes("writeWithoutResponse") || !charSpec.enc) break;
+                            (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
+                                (v, ct) => this.#write(char, charSpec.enc!(v), true, ct);
+                            break;
+                        }
+                        case "writeWithoutResponse": {
+                            if (!charSpec.enc) break;
+                            (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
+                                (v, ct) => this.#write(char, charSpec.enc!(v), false, ct);
+                            break;
+                        }
+                        case "notify": {
+                            // TODO
+                            break;
+                        }
+                    }
+                }
+
+                (this.#characteristics as Record<string, any>)[serviceKey] = serviceCharsObj;
+            }
+        }
+    }
+    // #endregion
+
+    // #region Custom methods
+    async *getPatterns(ct?: ICancellationToken): AsyncGenerator<OssmSchema.OssmPattern, void, unknown> {
+        const cts = !ct && this.defaultTimeoutMs ? CancellationTokenSource.createWithTimeout(this.defaultTimeoutMs) : undefined;
+        ct = ct ?? cts?.token ?? CancellationToken.None;
+
+        let idx = 0;
+        while (true) {
+            // Write patten index to fetch then read it back
+            const payload = this._enc.encode(idx.toString());
+            const valueStr = this._dec.decode(await this._taskQueue.enqueue(async () => {
+                await this.#characteristics.common.patternOptions.writeValue(payload);
+                return await this.#characteristics.common.patternOptions.readValue();
+            }));
+
+            // Empty string indicates we've reached the end of the pattern list
+            if (!valueStr || valueStr.trim() === "")
+                break;
+
+            const [name, description] = valueStr.split(":", 2);
+
+            yield {
+                idx: idx++,
+                name,
+                description
+            };
+        }
+    }
+    // #endregion
+
+    // #region Helpers
+    async #read(characteristic: BluetoothRemoteGATTCharacteristic, cancellationToken?: CancellationToken): Promise<string> {
+        const [cts, ct] = this.#getCancellationToken(cancellationToken);
+        try { return this._dec.decode(await this._taskQueue.enqueue(() => characteristic.readValue(), ct)); }
+        finally { cts?.dispose(); }
+    }
+
+    async #write(characteristic: BluetoothRemoteGATTCharacteristic, value: string, waitForResponse: boolean, cancellationToken?: ICancellationToken): Promise<void> {
+        const [cts, ct] = this.#getCancellationToken(cancellationToken);
+        const buf = this._enc.encode(value);
+        try { return this._taskQueue.enqueue(() => waitForResponse ? characteristic.writeValueWithoutResponse(buf) : characteristic.writeValue(buf), ct); }
+        finally { cts?.dispose(); }
+    }
+
+    #getCancellationToken(cancellationToken?: ICancellationToken): [CancellationTokenSource | undefined, ICancellationToken] {
+        const cts = !cancellationToken && this.defaultTimeoutMs ? CancellationTokenSource.createWithTimeout(this.defaultTimeoutMs) : undefined;
+        return [cts, cancellationToken ?? cts?.token ?? CancellationToken.None];
+    }
+
+    static #upperFirst(string: string) {
+        return string.charAt(0).toUpperCase() + string.slice(1);
+    }
+    // #endregion
 }
 
 // Export combined types for IDE & compiler hints
@@ -238,7 +337,7 @@ export type OssmLiteClient = OssmLiteClientGenerated & OssmLiteClientImpl;
 export const OssmLiteClient = OssmLiteClientImpl as unknown as (
     (typeof OssmLiteClientImpl extends new (...args: infer P) => any 
         ? new (...args: P) => OssmLiteClient 
-        : never) & 
-    typeof OssmLiteClientImpl
+        : never)
+    & typeof OssmLiteClientImpl
 );
 // #endregion
