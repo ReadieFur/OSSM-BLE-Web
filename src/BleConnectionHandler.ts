@@ -173,7 +173,7 @@ export abstract class BleConnectionHandler implements Disposable {
     /**
      * Discovers and initializes a single GATT service and all its characteristics
      */
-    static async discoverGattService<TDef extends GattServiceDefinition>(
+    protected static async _discoverGattService<TDef extends GattServiceDefinition>(
         gatt: BluetoothRemoteGATTServer,
         serviceDef: TDef
     ): Promise<DiscoveredGattService<TDef>> {

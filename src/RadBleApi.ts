@@ -66,7 +66,7 @@ type RadNotifiableCharacteristicKey = {
         never;
 }[RawSpecKey];
 
-type RadTelemetryObjType<OWNED extends boolean = false> = {
+type RadTelemetryObjType<OWNED extends boolean> = {
     [K in RadNotifiableCharacteristicKey]:
         OWNED extends true ? SingleEventSource<[RadTelemetry]> : SingleEvent<[RadTelemetry]>
 };
