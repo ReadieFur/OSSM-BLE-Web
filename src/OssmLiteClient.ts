@@ -58,7 +58,7 @@ type LiteSpecSkeletonCharacteristic = {
 
 type LiteSpecSkeleton = {
     [key: string]: {
-        serviceUuid: string;
+        serviceUuid: string | number;
         characteristics: {
             [charKey: string]: LiteSpecSkeletonCharacteristic;
         };
@@ -67,7 +67,7 @@ type LiteSpecSkeleton = {
 
 const LITE_BLE_SPEC = {
     config: {
-        serviceUuid: "055C",
+        serviceUuid: 0x055C,
         characteristics: {
             wifiConfig: { uuid: LITE_CONFIG_UUID_BASE + "202057694669", properties: ["read", "write"] },
             renameDevice: { uuid: LITE_CONFIG_UUID_BASE + "52656E616D65", properties: ["read", "write", "writeWithoutResponse", "notify"] },
@@ -88,7 +88,7 @@ const LITE_BLE_SPEC = {
         }
     },
     common: {
-        serviceUuid: "055E",
+        serviceUuid: 0x055E,
         characteristics: {
             speed: { uuid: LITE_COMMON_UUID_BASE_1 + "005370656564", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
             maxDepth: { uuid: LITE_COMMON_UUID_BASE_1 + "4d6178446570", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
@@ -100,7 +100,7 @@ const LITE_BLE_SPEC = {
                     return { position: Number.parseFloat(position), duration: Number.parseFloat(duration) };
                 }
             },
-            targetPosition: { uuid: LITE_COMMON_UUID_BASE_2 + "6f6e546178", properties: ["read", "notify"], ...LITE_CODECS.float },
+            targetPosition: { uuid: LITE_COMMON_UUID_BASE_2 + "6f6e54617267", properties: ["read", "notify"], ...LITE_CODECS.float },
             currentPosition: { uuid: LITE_COMMON_UUID_BASE_2 + "6f6e63757272", properties: ["read", "notify"], ...LITE_CODECS.float },
             sensation: { uuid: LITE_COMMON_UUID_BASE_3 + "536174696f6e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
             pattern: { uuid: LITE_COMMON_UUID_BASE_3 + "50617465726e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
@@ -173,7 +173,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     static async pairDevice(): Promise<OssmLiteClient> {
         const bleDevice = await navigator.bluetooth.requestDevice({
             filters: [{ name: "OSSM" }],
-            optionalServices: []
+            optionalServices: Object.values(LITE_BLE_SPEC).map(service => service.serviceUuid)
         });
         return new OssmLiteClientImpl(bleDevice) as OssmLiteClient;
     }
@@ -231,6 +231,8 @@ class OssmLiteClientImpl extends BleConnectionHandler {
         this.#characteristics = {} as LiteGatts;
 
         for (const [serviceKey, serviceSpec] of Object.entries(LITE_BLE_SPEC as LiteSpecSkeleton)) {
+            this._debugLog("_setupServicesAndCharacteristics service", serviceKey, serviceSpec.serviceUuid)
+
             const gattService = await gatt.getPrimaryService(serviceSpec.serviceUuid);
             const deviceChars = new Map((await gattService.getCharacteristics()).map(c => [c.uuid.toLowerCase(), c]));
 
@@ -241,6 +243,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
 
                 const char = deviceChars.get(charSpec.uuid.toLowerCase());
                 if (!char) throw new DOMException(`[OssmLiteClient] Characteristic ${charKey} not found`, "NotFoundError");
+                this._debugLog("_setupServicesAndCharacteristics characteristic", charKey, char.uuid)
 
                 serviceCharsObj[charKey] = char;
 
@@ -287,6 +290,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
             // Write patten index to fetch then read it back
             const payload = this._enc.encode(idx.toString());
             const valueStr = this._dec.decode(await this._taskQueue.enqueue(async () => {
+                this._debugLog("Fetching pattern info for idx", idx);
                 await this.#characteristics.common.patternOptions.writeValue(payload);
                 return await this.#characteristics.common.patternOptions.readValue();
             }));
