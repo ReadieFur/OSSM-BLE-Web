@@ -347,7 +347,7 @@ export class RadBleApi extends BleConnectionHandler {
 
     #handleIncomingTelemetry(event: Event) {
         if (!event.target) return;
-        const target = event.target as BluetoothRemoteGATTCharacteristic
+        const target = event.target as BluetoothRemoteGATTCharacteristic;
 
         const key = this.#radCharacteristicGattMap.get(target);
         if (!key) return;

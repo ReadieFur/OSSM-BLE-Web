@@ -65,6 +65,7 @@ type LiteSpecSkeleton = {
     };
 };
 
+// https://github.com/fray-d/OSSM-Lite/tree/e1ff45d8eafbf43e1d6b7f5f9a35a8277faa9b9b/Software/src/services/communication
 const LITE_BLE_SPEC = {
     config: {
         serviceUuid: 0x055C,
@@ -137,7 +138,7 @@ type LiteGetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
                     : never
                 : never
             : never
-        ]: LiteGetter<T[ServiceKey]["characteristics"][CharKey] extends { dec: (v: string) => infer R } ? R : never>; // Infer the method parameters & return type from the decoder;
+        ]: LiteGetter<T[ServiceKey]["characteristics"][CharKey] extends { dec: LiteCodec<infer R>["dec"] } ? R : never>; // Infer the method parameters & return type from the decoder;
     };
 }[keyof T]>;
 
@@ -154,9 +155,27 @@ type LiteSetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
                     : never
                 : never
             : never
-        ]: LiteSetter<T[ServiceKey]["characteristics"][CharKey] extends { enc: (v: infer V) => string } ? V : never>;
+        ]: LiteSetter<T[ServiceKey]["characteristics"][CharKey] extends { enc: LiteCodec<infer V>["enc"] } ? V : never>;
     };
 }[keyof T]>;
+
+type LiteNotifierGenerator<T extends LiteSpecSkeleton, TOwned> = UnionToIntersection<{
+    -readonly [ServiceKey in keyof T]: {
+        -readonly [CharKey in keyof T[ServiceKey]["characteristics"] as CharKey extends string
+            ? T[ServiceKey]["characteristics"][CharKey] extends { dec: infer D }
+                ? D extends (v: string) => infer R
+                    ? LiteHasProperty<T[ServiceKey]["characteristics"][CharKey]["properties"], "notify"> extends true
+                        ? CharKey
+                        : never
+                    : never
+                : never
+            : never
+        ]: TOwned extends true
+            ? SingleEventSource<[T[ServiceKey]["characteristics"][CharKey] extends { dec: LiteCodec<infer R>["dec"] } ? R : never]>
+            : SingleEvent<[T[ServiceKey]["characteristics"][CharKey] extends { dec: LiteCodec<infer R>["dec"] } ? R : never]>;
+    };
+}[keyof T]>;
+type LiteNotifiers<TOwned> = LiteNotifierGenerator<LiteSpec, TOwned>;
 
 type LiteMemberGenerator<T extends LiteSpecSkeleton> = LiteGetterGenerator<T> & LiteSetterGenerator<T>;
 
@@ -180,9 +199,12 @@ class OssmLiteClientImpl extends BleConnectionHandler {
 
     protected readonly _enc = new TextEncoder();
     protected readonly _dec = new TextDecoder();
+    readonly #on = {} as LiteNotifiers<true>;
     #defaultTimeoutMs = 6000;
     #characteristics = {} as LiteGatts;
+    #generatedNotifierSignatures: Map<BluetoothRemoteGATTCharacteristic, (e: Event) => void> = new Map();
 
+    get on(): Readonly<LiteNotifiers<false>> { return this.#on; }
     get defaultTimeoutMs(): number | null { return this.#defaultTimeoutMs == -1 ? null : this.#defaultTimeoutMs; }
     set defaultTimeoutMs(value: number) {
         if (value < -1 || Number.isNaN(value))
@@ -193,11 +215,28 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     private get generated(): OssmLiteClientGenerated { return this as unknown as OssmLiteClientGenerated; }
     constructor(device: BluetoothDevice) {
         super(device);
+
+        // Generate event dispatchers
+        for (const [serviceKey, serviceSpec] of Object.entries(LITE_BLE_SPEC as LiteSpecSkeleton)) {
+            for (const charKey of Object.keys(serviceSpec.characteristics)) {
+                const charSpec = serviceSpec.characteristics[charKey];
+
+                if (!charSpec.properties.includes("notify"))
+                    continue;
+
+                (this.#on as any as Record<string, SingleEventSource<[unknown]>>)[charKey] = new SingleEventSource();
+            }
+        }
+
+        // Generate methods but set them to throw if called since we aren't ready yet
         this.#clearGenerated();
     }
 
     // #region Dynamic method generators
     #clearGenerated(): void {
+        for (const [bluetooth, signature] of this.#generatedNotifierSignatures)
+            bluetooth.removeEventListener("characteristicvaluechanged", signature);
+
         for (const [serviceKey, serviceSpec] of Object.entries(LITE_BLE_SPEC as LiteSpecSkeleton)) {
             for (const charKey of Object.keys(serviceSpec.characteristics)) {
                 const charSpec = serviceSpec.characteristics[charKey];
@@ -217,10 +256,6 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                                 (v, ct) => { throw new DOMException("Not ready", "InvalidStateError"); };
                             break;
                         }
-                        case "notify": {
-                            // TODO
-                            break;
-                        }
                     }
                 }
             }
@@ -234,40 +269,49 @@ class OssmLiteClientImpl extends BleConnectionHandler {
             this._debugLog("_setupServicesAndCharacteristics service", serviceKey, serviceSpec.serviceUuid)
 
             const gattService = await gatt.getPrimaryService(serviceSpec.serviceUuid);
-            const deviceChars = new Map((await gattService.getCharacteristics()).map(c => [c.uuid.toLowerCase(), c]));
+            const deviceCharacteristics = new Map((await gattService.getCharacteristics()).map(c => [c.uuid.toLowerCase(), c]));
 
             const serviceCharsObj = {} as Record<string, BluetoothRemoteGATTCharacteristic>;
 
             for (const charKey of Object.keys(serviceSpec.characteristics)) {
                 const charSpec = serviceSpec.characteristics[charKey];
 
-                const char = deviceChars.get(charSpec.uuid.toLowerCase());
-                if (!char) throw new DOMException(`[OssmLiteClient] Characteristic ${charKey} not found`, "NotFoundError");
-                this._debugLog("_setupServicesAndCharacteristics characteristic", charKey, char.uuid)
+                const characteristic = deviceCharacteristics.get(charSpec.uuid.toLowerCase());
+                if (!characteristic) throw new DOMException(`[OssmLiteClient] Characteristic ${charKey} not found`, "NotFoundError");
+                this._debugLog("_setupServicesAndCharacteristics characteristic", charKey, characteristic.uuid)
 
-                serviceCharsObj[charKey] = char;
+                serviceCharsObj[charKey] = characteristic;
 
                 for (const prop of charSpec.properties) {
                     switch (prop) {
                         case "read": {
                             if (!charSpec.dec) break;
+                            if (!characteristic.properties.read) throw new DOMException("Characteristic missing required read property", "NotSupportedError");
                             (this.generated as any as Record<string, LiteGetter<unknown>>)[`get${OssmLiteClientImpl.#upperFirst(charKey)}`] =
-                                async ct => charSpec.dec!(await this.#read(char, ct));
+                                async ct => charSpec.dec!(await this.#read(characteristic, ct));
                             break;
                         }
                         case "write": {
                             if (charSpec.properties.includes("writeWithoutResponse") || !charSpec.enc) break;
+                            if (!characteristic.properties.write) throw new DOMException("Characteristic missing required write property", "NotSupportedError");
                             (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
-                                (v, ct) => this.#write(char, charSpec.enc!(v), true, ct);
+                                (v, ct) => this.#write(characteristic, charSpec.enc!(v), true, ct);
                             break;
                         }
                         case "writeWithoutResponse": {
                             if (!charSpec.enc) break;
+                            if (!characteristic.properties.writeWithoutResponse) throw new DOMException("Characteristic missing required writeWithoutResponse property", "NotSupportedError");
                             (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
-                                (v, ct) => this.#write(char, charSpec.enc!(v), false, ct);
+                                (v, ct) => this.#write(characteristic, charSpec.enc!(v), false, ct);
                             break;
                         }
                         case "notify": {
+                            if (!charSpec.dec) break;
+                            if (!characteristic.properties.notify && !characteristic.properties.indicate) throw new DOMException("Characteristic missing required notify property", "NotSupportedError");
+                            
+                            const notifySignature = (event: Event) => this.#notifyHandler(event, charKey, charSpec.dec!);
+                            characteristic.addEventListener("characteristicvaluechanged", notifySignature);
+                            this.#generatedNotifierSignatures.set(characteristic, notifySignature);
                             // TODO
                             break;
                         }
@@ -277,6 +321,12 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                 (this.#characteristics as Record<string, any>)[serviceKey] = serviceCharsObj;
             }
         }
+    }
+    // #endregion
+
+    // #region Lifecycle
+    protected override async _onBeforeDisconnect(): Promise<void> {
+        this.#clearGenerated();
     }
     // #endregion
 
@@ -322,6 +372,20 @@ class OssmLiteClientImpl extends BleConnectionHandler {
         const buf = this._enc.encode(value);
         try { return this._taskQueue.enqueue(() => waitForResponse ? characteristic.writeValueWithoutResponse(buf) : characteristic.writeValue(buf), ct); }
         finally { cts?.dispose(); }
+    }
+
+    #notifyHandler(event: Event, characteristicKey: string, decoder: LiteCodec<unknown>["dec"]) {
+        if (!event.target) return;
+        const target = event.target as BluetoothRemoteGATTCharacteristic;
+
+        const dispatcher = (this.#on as any as Record<string, SingleEventSource<[unknown]> | undefined>)[characteristicKey];
+        if (!dispatcher) return;
+
+        let value: unknown;
+        try { value = decoder(this._dec.decode(target.value)); }
+        catch (e) { console.error(`[${this._device.id}] #notifyHandler failed to decode value`, e); }
+
+        dispatcher.dispatch(value);
     }
 
     #getCancellationToken(cancellationToken?: ICancellationToken): [CancellationTokenSource | undefined, ICancellationToken] {
