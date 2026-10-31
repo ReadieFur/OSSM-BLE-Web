@@ -266,10 +266,10 @@ class OssmLiteClientImpl extends BleConnectionHandler {
         this.#characteristics = {} as LiteGatts;
 
         for (const [serviceKey, serviceSpec] of Object.entries(LITE_BLE_SPEC as LiteSpecSkeleton)) {
-            this._debugLog("_setupServicesAndCharacteristics service", serviceKey, serviceSpec.serviceUuid)
-
             const gattService = await gatt.getPrimaryService(serviceSpec.serviceUuid);
             const deviceCharacteristics = new Map((await gattService.getCharacteristics()).map(c => [c.uuid.toLowerCase(), c]));
+
+            this._debugLog("_setupServicesAndCharacteristics service", serviceKey, serviceSpec.serviceUuid)
 
             const serviceCharsObj = {} as Record<string, BluetoothRemoteGATTCharacteristic>;
 
