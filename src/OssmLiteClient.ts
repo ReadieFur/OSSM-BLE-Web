@@ -1,33 +1,33 @@
+/*
+ * This module is for the OssmLite firmware
+ * 
+ * Since the OssmLite firmware uses rather simple and fast endpoints I have decided to go with mostly schema driven approach
+ * Unlike the RadBleApi which has schema driven types and manual function definitions
+ * This module uses the schema for 100% dynamically generated types and code at runtime
+ * The setup is rather complex but it means adding in new properties is dead simple
+ * Most of the configuration therefore is done in the LITE_BLE_SPEC below
+ */
+
+// #region Imports
 import { BleConnectionHandler } from "./BleConnectionHandler";
 import { CancellationToken, CancellationTokenSource, ICancellationToken } from "./CancellationToken";
 import { enforceRange } from "./Helpers";
 import * as OssmSchema from "./OssmProtocolSchema";
 import { SingleEvent, SingleEventSource } from "./SingleEvent";
+// #endregion
+
+// #region BLE Specification
+/*
+ * Define all BLE characteristics here
+ * If the characteristic has read/write properties and a set encoder/decoder then a dynamically generated method & type hints will be created for it
+ * If the OssmLiteClientImpl class has a member who's name matches one of these characteristics then it will be overriden by the class impl
+ * The characteristic keys must be unique here as they are unioned
+ */
 
 const LITE_CONFIG_UUID_BASE = "4f53534d-436f-6e66-6967-";
 const LITE_COMMON_UUID_BASE_1 = "4f53534d-436f-6d6d-6f6e-";
 const LITE_COMMON_UUID_BASE_2 = "4f53534d-506f-7369-7469-";
 const LITE_COMMON_UUID_BASE_3 = "4f53534d-456e-6769-6e65-";
-
-type Codec<T> = {
-    enc: (v: T) => string;
-    dec: (v: string) => T;
-};
-
-const LITE_CODECS = {
-    float: {
-        enc: (v: number) => v.toString(),
-        dec: v => Number.parseFloat(v)
-    },
-    int: {
-        enc: (v: number) => v.toString(),
-        dec: v => Number.parseInt(v)
-    },
-    string: {
-        enc: (v: string) => v,
-        dec: v => v
-    }
-} as const satisfies Record<string, Codec<any>>
 
 type LiteSpecSkeleton = {
     [key: string]: {
@@ -36,7 +36,7 @@ type LiteSpecSkeleton = {
             [charKey: string]: {
                 uuid: string;
                 properties: readonly ("read" | "write" | "writeWithoutResponse" | "notify")[];
-            } & Partial<Codec<any>>;
+            } & Partial<LiteCodec<any>>;
         };
     };
 };
@@ -84,6 +84,32 @@ const LITE_BLE_SPEC = {
         }
     }
 } as const satisfies LiteSpecSkeleton;
+// #endregion
+
+// #region Common codecs
+type LiteCodec<T> = {
+    enc: (v: T) => string;
+    dec: (v: string) => T;
+};
+
+const LITE_CODECS = {
+    float: {
+        enc: (v: number) => v.toString(),
+        dec: v => Number.parseFloat(v)
+    },
+    int: {
+        enc: (v: number) => v.toString(),
+        dec: v => Number.parseInt(v)
+    },
+    string: {
+        enc: (v: string) => v,
+        dec: v => v
+    }
+} as const satisfies Record<string, LiteCodec<any>>
+// #endregion
+
+// #region Type generators
+/* oO0Oo Very magic voodoo shit! oO0Oo */
 
 type LiteSpec = typeof LITE_BLE_SPEC;
 
@@ -133,7 +159,14 @@ type OssmLiteClientGenerated = Omit<LiteMemberGenerator<LiteSpec>, keyof OssmLit
 
 type LiteRuntimeCharacteristic = {
     characteristic: BluetoothRemoteGATTCharacteristic,
-} & Partial<Codec<any>>;
+} & Partial<LiteCodec<any>>;
+// #endregion
+
+// #region Class implementation
+/*
+ * This is where the runtime generated methods are created and stored
+ * And where any additional methods or overrides are written
+ */
 
 class OssmLiteClientImpl extends BleConnectionHandler {
     static async pairDevice(): Promise<OssmLiteClient> {
@@ -208,3 +241,4 @@ export const OssmLiteClient = OssmLiteClientImpl as unknown as (
         : never) & 
     typeof OssmLiteClientImpl
 );
+// #endregion
