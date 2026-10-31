@@ -97,13 +97,13 @@ type LiteGetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
             ? T[ServiceKey]["characteristics"][CharKey] extends { dec: infer D }
                 ? D extends (v: string) => infer R
                     ? LiteHasProperty<T[ServiceKey]["characteristics"][CharKey]["properties"], "read"> extends true
-                        ? `get${Capitalize<CharKey>}`
-                        : never
+                        ? `get${Capitalize<CharKey>}` // If the char has a read prop and a decoder then generate a method
+                        : never // Otherwise omit the entry
                     : never
                 : never
             : never
         ]: (ct?: any) => Promise<
-            T[ServiceKey]["characteristics"][CharKey] extends { dec: (v: string) => infer R } ? R : never
+            T[ServiceKey]["characteristics"][CharKey] extends { dec: (v: string) => infer R } ? R : never // Infer the method parameters & return type from the decoder
         >;
     };
 }[keyof T]>;
