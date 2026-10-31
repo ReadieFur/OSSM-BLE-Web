@@ -41,54 +41,46 @@ type LiteSpecSkeleton = {
     };
 };
 
-// const LITE_BLE_SPEC = {
-//     config: {
-//         serviceUuid: "055C",
-//         characteristics: {
-//             wifiConfig: { uuid: LITE_CONFIG_UUID_BASE + "202057694669", properties: ["read", "write"] },
-//             renameDevice: { uuid: LITE_CONFIG_UUID_BASE + "52656E616D65", properties: ["read", "write", "writeWithoutResponse", "notify"] },
-//             homingType: { uuid: LITE_CONFIG_UUID_BASE + "486F6D696E67", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-//             railLength: { uuid: LITE_CONFIG_UUID_BASE + "4C656E677468", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             railDirection: { uuid: LITE_CONFIG_UUID_BASE + "496E76657274", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-//             homeBetweenModes: { uuid: LITE_CONFIG_UUID_BASE + "5265486F6D65", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-//             gpio: { uuid: LITE_CONFIG_UUID_BASE + "20204750494F", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-//             updateAndRestart: { uuid: LITE_CONFIG_UUID_BASE + "557064617465", properties: ["write", "writeWithoutResponse"], ...LITE_CODECS.int },
-//             maxAcceleration: { uuid: LITE_CONFIG_UUID_BASE + "4d414343454c", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             maxMotorRpm: { uuid: LITE_CONFIG_UUID_BASE + "4d415852504d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-//             stepsPerRevolution: { uuid: LITE_CONFIG_UUID_BASE + "535445505052", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-//             pulleyTeeth: { uuid: LITE_CONFIG_UUID_BASE + "50554c4c4559", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             beltPitch: { uuid: LITE_CONFIG_UUID_BASE + "425049544348", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             currentSensorLimit: { uuid: LITE_CONFIG_UUID_BASE + "53656e736f72", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             speedCurve: { uuid: LITE_CONFIG_UUID_BASE + "537064437276", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             homingSpeed: { uuid: LITE_CONFIG_UUID_BASE + "537064486f6d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float }
-//         }
-//     },
-//     common: {
-//         serviceUuid: "055E",
-//         characteristics: {
-//             speed: { uuid: LITE_COMMON_UUID_BASE_1 + "005370656564", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             maxDepth: { uuid: LITE_COMMON_UUID_BASE_1 + "4d6178446570", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             minDepth: { uuid: LITE_COMMON_UUID_BASE_1 + "4d696e446570", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             streamInput: { uuid: LITE_COMMON_UUID_BASE_1 + "53747265616D", properties: ["read", "write", "writeWithoutResponse", "notify"],
-//                 enc: (v: { position: number, duration: number }) => `${v.position}:${v.duration}`,
-//                 dec: v => {
-//                     const [position, duration] = v.split(":");
-//                     return { position: Number.parseFloat(position), duration: Number.parseFloat(duration) };
-//                 }
-//             },
-//             targetPosition: { uuid: LITE_COMMON_UUID_BASE_2 + "6f6e546178", properties: ["read", "notify"], ...LITE_CODECS.float },
-//             currentPosition: { uuid: LITE_COMMON_UUID_BASE_2 + "6f6e63757272", properties: ["read", "notify"], ...LITE_CODECS.float },
-//             sensation: { uuid: LITE_COMMON_UUID_BASE_3 + "536174696f6e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-//             pattern: { uuid: LITE_COMMON_UUID_BASE_3 + "50617465726e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-//             patternOptions: { uuid: LITE_COMMON_UUID_BASE_3 + "5061744c7374", properties: ["read", "write"] }
-//         }
-//     }
-// } as const satisfies LiteSpecSkeleton;
 const LITE_BLE_SPEC = {
+    config: {
+        serviceUuid: "055C",
+        characteristics: {
+            wifiConfig: { uuid: LITE_CONFIG_UUID_BASE + "202057694669", properties: ["read", "write"] },
+            renameDevice: { uuid: LITE_CONFIG_UUID_BASE + "52656E616D65", properties: ["read", "write", "writeWithoutResponse", "notify"] },
+            homingType: { uuid: LITE_CONFIG_UUID_BASE + "486F6D696E67", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
+            railLength: { uuid: LITE_CONFIG_UUID_BASE + "4C656E677468", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            railDirection: { uuid: LITE_CONFIG_UUID_BASE + "496E76657274", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
+            homeBetweenModes: { uuid: LITE_CONFIG_UUID_BASE + "5265486F6D65", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
+            gpio: { uuid: LITE_CONFIG_UUID_BASE + "20204750494F", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
+            updateAndRestart: { uuid: LITE_CONFIG_UUID_BASE + "557064617465", properties: ["write", "writeWithoutResponse"], ...LITE_CODECS.int },
+            maxAcceleration: { uuid: LITE_CONFIG_UUID_BASE + "4d414343454c", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            maxMotorRpm: { uuid: LITE_CONFIG_UUID_BASE + "4d415852504d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
+            stepsPerRevolution: { uuid: LITE_CONFIG_UUID_BASE + "535445505052", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
+            pulleyTeeth: { uuid: LITE_CONFIG_UUID_BASE + "50554c4c4559", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            beltPitch: { uuid: LITE_CONFIG_UUID_BASE + "425049544348", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            currentSensorLimit: { uuid: LITE_CONFIG_UUID_BASE + "53656e736f72", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            speedCurve: { uuid: LITE_CONFIG_UUID_BASE + "537064437276", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            homingSpeed: { uuid: LITE_CONFIG_UUID_BASE + "537064486f6d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float }
+        }
+    },
     common: {
         serviceUuid: "055E",
         characteristics: {
             speed: { uuid: LITE_COMMON_UUID_BASE_1 + "005370656564", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            maxDepth: { uuid: LITE_COMMON_UUID_BASE_1 + "4d6178446570", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            minDepth: { uuid: LITE_COMMON_UUID_BASE_1 + "4d696e446570", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            streamInput: { uuid: LITE_COMMON_UUID_BASE_1 + "53747265616D", properties: ["read", "write", "writeWithoutResponse", "notify"],
+                enc: (v: { position: number, duration: number }) => `${v.position}:${v.duration}`,
+                dec: v => {
+                    const [position, duration] = v.split(":");
+                    return { position: Number.parseFloat(position), duration: Number.parseFloat(duration) };
+                }
+            },
+            targetPosition: { uuid: LITE_COMMON_UUID_BASE_2 + "6f6e546178", properties: ["read", "notify"], ...LITE_CODECS.float },
+            currentPosition: { uuid: LITE_COMMON_UUID_BASE_2 + "6f6e63757272", properties: ["read", "notify"], ...LITE_CODECS.float },
+            sensation: { uuid: LITE_COMMON_UUID_BASE_3 + "536174696f6e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
+            pattern: { uuid: LITE_COMMON_UUID_BASE_3 + "50617465726e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
+            patternOptions: { uuid: LITE_COMMON_UUID_BASE_3 + "5061744c7374", properties: ["read", "write"] }
         }
     }
 } as const satisfies LiteSpecSkeleton;
@@ -97,7 +89,9 @@ type LiteSpec = typeof LITE_BLE_SPEC;
 
 type LiteHasProperty<Props extends readonly string[], Target extends string> = Target extends Props[number] ? true : false;
 
-type LiteGetterGenerator<T extends LiteSpecSkeleton> = {
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
+
+type LiteGetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
     -readonly [ServiceKey in keyof T]: {
         -readonly [CharKey in keyof T[ServiceKey]["characteristics"] as CharKey extends string
             ? T[ServiceKey]["characteristics"][CharKey] extends { dec: infer D }
@@ -112,9 +106,9 @@ type LiteGetterGenerator<T extends LiteSpecSkeleton> = {
             T[ServiceKey]["characteristics"][CharKey] extends { dec: (v: string) => infer R } ? R : never
         >;
     };
-}[keyof T];
+}[keyof T]>;
 
-type LiteSetterGenerator<T extends LiteSpecSkeleton> = {
+type LiteSetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
     -readonly [ServiceKey in keyof T]: {
         -readonly [CharKey in keyof T[ServiceKey]["characteristics"] as CharKey extends string
             ? T[ServiceKey]["characteristics"][CharKey] extends { enc: infer E }
@@ -131,8 +125,7 @@ type LiteSetterGenerator<T extends LiteSpecSkeleton> = {
             ct?: any
         ) => Promise<void>;
     };
-}[keyof T];
-
+}[keyof T]>;
 
 type LiteMemberGenerator<T extends LiteSpecSkeleton> = LiteGetterGenerator<T> & LiteSetterGenerator<T>;
 
@@ -208,7 +201,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
 
 // Export combined types for IDE & compiler hints
 export type OssmLiteClient = OssmLiteClientGenerated & OssmLiteClientImpl;
-// Export object mapped to impl with public definitions (exporting OssmLiteClientImpl as-is wont do this for some reason)
+// Export object mapped to impl with public definitions (exporting OssmLiteClientImpl as-is won't do this for some reason)
 export const OssmLiteClient = OssmLiteClientImpl as unknown as (
     (typeof OssmLiteClientImpl extends new (...args: infer P) => any 
         ? new (...args: P) => OssmLiteClient 
