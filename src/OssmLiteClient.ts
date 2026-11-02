@@ -234,8 +234,10 @@ class OssmLiteClientImpl extends BleConnectionHandler {
 
     // #region Dynamic method generators
     #clearGenerated(): void {
-        for (const [bluetooth, signature] of this.#generatedNotifierSignatures)
+        for (const [bluetooth, signature] of this.#generatedNotifierSignatures) {
             bluetooth.removeEventListener("characteristicvaluechanged", signature);
+            bluetooth.stopNotifications().catch(e => console.error(`Failed to stop notifications for ${bluetooth.uuid}`, e));
+        }
 
         for (const [serviceKey, serviceSpec] of Object.entries(LITE_BLE_SPEC as LiteSpecSkeleton)) {
             for (const charKey of Object.keys(serviceSpec.characteristics)) {
@@ -265,9 +267,10 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     protected async _setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void> {
         this.#characteristics = {} as LiteGatts;
 
+        const tasks: Promise<unknown>[] = [];
         for (const [serviceKey, serviceSpec] of Object.entries(LITE_BLE_SPEC as LiteSpecSkeleton)) {
-            const gattService = await gatt.getPrimaryService(serviceSpec.serviceUuid);
-            const deviceCharacteristics = new Map((await gattService.getCharacteristics()).map(c => [c.uuid.toLowerCase(), c]));
+            const gattService = await this._taskQueue.enqueue(() => gatt.getPrimaryService(serviceSpec.serviceUuid));
+            const deviceCharacteristics = new Map((await this._taskQueue.enqueue(() => gattService.getCharacteristics())).map(c => [c.uuid.toLowerCase(), c]));
 
             this._debugLog("_setupServicesAndCharacteristics service", serviceKey, serviceSpec.serviceUuid)
 
@@ -295,14 +298,14 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                             if (charSpec.properties.includes("writeWithoutResponse") || !charSpec.enc) break;
                             if (!characteristic.properties.write) throw new DOMException("Characteristic missing required write property", "NotSupportedError");
                             (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
-                                (v, ct) => this.#write(characteristic, charSpec.enc!(v), true, ct);
+                                (v, ct) => this.#write(characteristic, charSpec.enc!(v), false, ct);
                             break;
                         }
                         case "writeWithoutResponse": {
                             if (!charSpec.enc) break;
                             if (!characteristic.properties.writeWithoutResponse) throw new DOMException("Characteristic missing required writeWithoutResponse property", "NotSupportedError");
                             (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
-                                (v, ct) => this.#write(characteristic, charSpec.enc!(v), false, ct);
+                                (v, ct) => this.#write(characteristic, charSpec.enc!(v), true, ct);
                             break;
                         }
                         case "notify": {
@@ -312,7 +315,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                             const notifySignature = (event: Event) => this.#notifyHandler(event, charKey, charSpec.dec!);
                             characteristic.addEventListener("characteristicvaluechanged", notifySignature);
                             this.#generatedNotifierSignatures.set(characteristic, notifySignature);
-                            // TODO
+                            tasks.push(this._taskQueue.enqueue(() => characteristic.startNotifications()));
                             break;
                         }
                     }
@@ -321,6 +324,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                 (this.#characteristics as Record<string, any>)[serviceKey] = serviceCharsObj;
             }
         }
+        await Promise.all(tasks);
     }
     // #endregion
 
@@ -367,10 +371,10 @@ class OssmLiteClientImpl extends BleConnectionHandler {
         finally { cts?.dispose(); }
     }
 
-    async #write(characteristic: BluetoothRemoteGATTCharacteristic, value: string, waitForResponse: boolean, cancellationToken?: ICancellationToken): Promise<void> {
+    async #write(characteristic: BluetoothRemoteGATTCharacteristic, value: string, withoutResponse: boolean, cancellationToken?: ICancellationToken): Promise<void> {
         const [cts, ct] = this.#getCancellationToken(cancellationToken);
         const buf = this._enc.encode(value);
-        try { return this._taskQueue.enqueue(() => waitForResponse ? characteristic.writeValueWithoutResponse(buf) : characteristic.writeValue(buf), ct); }
+        try { return this._taskQueue.enqueue(() => withoutResponse ? characteristic.writeValueWithoutResponse(buf) : characteristic.writeValue(buf), ct); }
         finally { cts?.dispose(); }
     }
 
