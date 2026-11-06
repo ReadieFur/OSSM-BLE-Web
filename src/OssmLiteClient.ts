@@ -366,7 +366,6 @@ class OssmLiteClientImpl extends BleConnectionHandler {
         }
         await Promise.all(tasks);
     }
-    // #endregion
 
     protected override async _onBeforeDisconnect(): Promise<void> {
         this.#clearGenerated();
