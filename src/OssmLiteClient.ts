@@ -23,19 +23,32 @@ type LiteCodec<T> = {
 };
 
 const LITE_CODECS = {
-    float: {
-        enc: (v: number) => v.toString(),
-        dec: v => Number.parseFloat(v)
-    },
-    int: {
-        enc: (v: number) => v.toString(),
-        dec: v => Number.parseInt(v)
+    number: (options?: { int?: boolean; min?: number; max?: number }): LiteCodec<number> => {
+        const min = options?.min ?? Number.NEGATIVE_INFINITY;
+        const max = options?.max ?? Number.POSITIVE_INFINITY;
+        return {
+            enc: (v: number) => {
+                if (options?.min !== undefined || options?.max !== undefined)
+                    enforceRange(v, min, max);
+                return options?.int ? Math.trunc(v).toString() : v.toString();
+            },
+            dec: v => options?.int ? Number.parseInt(v) : Number.parseFloat(v)
+        };
     },
     string: {
         enc: (v: string) => v,
         dec: v => v
+    },
+    boolean: {
+        enc: (v: boolean) => v ? "true" : "false",
+        dec: (v: string) => {
+            const lower = v.trim().toLowerCase();
+            if (["true", "1", "t"].includes(lower)) return true;
+            if (["false", "0", "f"].includes(lower)) return false;
+            throw new DOMException(`Invalid boolean value: "${v}"`, "SyntaxError");
+        }
     }
-} as const satisfies Record<string, LiteCodec<any>>
+} as const satisfies Record<string, LiteCodec<any> | ((...args: any[]) => LiteCodec<any>)>;
 // #endregion
 
 // #region BLE Specification
@@ -43,13 +56,79 @@ const LITE_CODECS = {
  * Define all BLE characteristics here
  * If the characteristic has read/write properties and a set encoder/decoder then a dynamically generated method & type hints will be created for it
  * If the OssmLiteClientImpl class has a member who's name matches one of these characteristics then it will be overriden by the class impl
- * The characteristic keys must be unique here as they are unioned
+ * The characteristic keys must be unique here as they are union'd
  */
 
-const LITE_CONFIG_UUID_BASE = "4f53534d-436f-6e66-6967-";
-const LITE_COMMON_UUID_BASE_1 = "4f53534d-436f-6d6d-6f6e-";
-const LITE_COMMON_UUID_BASE_2 = "4f53534d-506f-7369-7469-";
-const LITE_COMMON_UUID_BASE_3 = "4f53534d-456e-6769-6e65-";
+const LITE_UUID_COMMON_BASE_1 = "4f53534d-436f-6d6d-6f6e-";
+const LITE_UUID_COMMON_BASE_2 = "4f53534d-506f-7369-7469-";
+const LITE_UUID_COMMON_BASE_3 = "4f53534d-456e-6769-6e65-";
+const LITE_UUID_CONFIG_BASE = "4f53534d-436f-6e66-6967-";
+
+// https://github.com/fray-d/OSSM-Lite/tree/e1ff45d8eafbf43e1d6b7f5f9a35a8277faa9b9b/Software/src/services/communication
+const LITE_BLE_SPEC = {
+    common: {
+        serviceUuid: 0x055E,
+        characteristics: {
+            speed: { uuid: LITE_UUID_COMMON_BASE_1 + "005370656564", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0, max: 100 }) },
+            maxDepth: { uuid: LITE_UUID_COMMON_BASE_1 + "4d6178446570", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0, max: 100 }) },
+            minDepth: { uuid: LITE_UUID_COMMON_BASE_1 + "4d696e446570", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0, max: 100 }) },
+            streamInput: { uuid: LITE_UUID_COMMON_BASE_1 + "53747265616D", properties: ["read", "write", "writeWithoutResponse", "notify"],
+                enc: (v: { position: number, duration: number }) => `${v.position}:${v.duration}`
+                // omit decoder (disables getter), value is always "POS:MS" and never holds any real value
+            },
+            targetPosition: { uuid: LITE_UUID_COMMON_BASE_2 + "6f6e54617267", properties: ["read", "notify"], ...LITE_CODECS.number({ min: 0, max: 100 }) },
+            currentPosition: { uuid: LITE_UUID_COMMON_BASE_2 + "6f6e63757272", properties: ["read", "notify"], ...LITE_CODECS.number({ min: 0, max: 100 }) },
+            sensation: { uuid: LITE_UUID_COMMON_BASE_3 + "536174696f6e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0, max: 100 }) },
+            pattern: { uuid: LITE_UUID_COMMON_BASE_3 + "50617465726e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ int: true, min: 0 }) },
+            patternOptions: { uuid: LITE_UUID_COMMON_BASE_3 + "5061744c7374", properties: ["read", "write"] } // Not publicly exposed, see class impl of getPatterns
+        }
+    },
+    config: {
+        serviceUuid: 0x055C,
+        characteristics: {
+            wifiConfig: { uuid: LITE_UUID_CONFIG_BASE + "202057694669", properties: ["read", "write"],
+                enc: (v: { ssid: string; password: string }) => `set:wifi:${v.ssid}|${v.password}`,
+                dec: v => JSON.parse(v) as {
+                    connected: boolean,
+                    ssid?: string,
+                    ip?: string,
+                    rssi?: number
+                }
+            },
+            deviceName: { uuid: LITE_UUID_CONFIG_BASE + "52656E616D65", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.string },
+            homingType: { uuid: LITE_UUID_CONFIG_BASE + "486F6D696E67", properties: ["read", "write", "writeWithoutResponse", "notify"],
+                enc: (v: LiteHomingType) => v.toString(), // Given this is using TS assume type safety, if JS is used and an invalid value is passed let the machine catch it
+                dec: v => Number.parseInt(v, 10) as LiteHomingType
+            }, // TODO: See LiteHomingType
+            railLength: { uuid: LITE_UUID_CONFIG_BASE + "4C656E677468", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) },
+            invertRailDirection: { uuid: LITE_UUID_CONFIG_BASE + "496E76657274", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.boolean },
+            homeBetweenModes: { uuid: LITE_UUID_CONFIG_BASE + "5265486F6D65", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.boolean },
+            gpio: { uuid: LITE_UUID_CONFIG_BASE + "20204750494F", properties: ["read", "write", "writeWithoutResponse", "notify"],
+                enc: (v: { pin: number; high: boolean }) => {
+                    enforceRange(v.pin, 1, 4, "Invalid pin number");
+                    return `${v.pin}:${v.high ? '1' : '0'}`;
+                },
+                dec: v => v.match(/\[(.*?)\]/)?.[1].split(",").map(Number) ?? []
+            },
+            updateAndRestart: { uuid: LITE_UUID_CONFIG_BASE + "557064617465", properties: ["write", "writeWithoutResponse"] }, // Manual implementation inside class definition
+            maxAcceleration: { uuid: LITE_UUID_CONFIG_BASE + "4d414343454c", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) },
+            maxMotorRpm: { uuid: LITE_UUID_CONFIG_BASE + "4d415852504d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) },
+            stepsPerRevolution: { uuid: LITE_UUID_CONFIG_BASE + "535445505052", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) },
+            pulleyTeeth: { uuid: LITE_UUID_CONFIG_BASE + "50554c4c4559", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) },
+            beltPitch: { uuid: LITE_UUID_CONFIG_BASE + "425049544348", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) },
+            currentSensorLimit: { uuid: LITE_UUID_CONFIG_BASE + "53656e736f72", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) }, // This has bound ranges in firmware but I don't want to hardcode limits in-case these bounds change (firmware bounds are 1.5 to 5.0)
+            speedCurve: { uuid: LITE_UUID_CONFIG_BASE + "537064437276", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) }, // Firmware bounds are 0.5 to 1
+            homingSpeed: { uuid: LITE_UUID_CONFIG_BASE + "537064486f6d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) }// Firmware bounds are 10 to 40
+        }
+    }
+} as const satisfies LiteSpecSkeleton;
+
+export enum LiteHomingType {
+    None = 0,
+    Default = 1,
+    SingleSided = 2,
+    DoubleTap = 3
+};
 
 type LiteSpecSkeletonCharacteristic = {
     uuid: string;
@@ -64,51 +143,6 @@ type LiteSpecSkeleton = {
         };
     };
 };
-
-// https://github.com/fray-d/OSSM-Lite/tree/e1ff45d8eafbf43e1d6b7f5f9a35a8277faa9b9b/Software/src/services/communication
-const LITE_BLE_SPEC = {
-    config: {
-        serviceUuid: 0x055C,
-        characteristics: {
-            wifiConfig: { uuid: LITE_CONFIG_UUID_BASE + "202057694669", properties: ["read", "write"] },
-            renameDevice: { uuid: LITE_CONFIG_UUID_BASE + "52656E616D65", properties: ["read", "write", "writeWithoutResponse", "notify"] },
-            homingType: { uuid: LITE_CONFIG_UUID_BASE + "486F6D696E67", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-            railLength: { uuid: LITE_CONFIG_UUID_BASE + "4C656E677468", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            railDirection: { uuid: LITE_CONFIG_UUID_BASE + "496E76657274", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-            homeBetweenModes: { uuid: LITE_CONFIG_UUID_BASE + "5265486F6D65", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-            gpio: { uuid: LITE_CONFIG_UUID_BASE + "20204750494F", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-            updateAndRestart: { uuid: LITE_CONFIG_UUID_BASE + "557064617465", properties: ["write", "writeWithoutResponse"], ...LITE_CODECS.int },
-            maxAcceleration: { uuid: LITE_CONFIG_UUID_BASE + "4d414343454c", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            maxMotorRpm: { uuid: LITE_CONFIG_UUID_BASE + "4d415852504d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-            stepsPerRevolution: { uuid: LITE_CONFIG_UUID_BASE + "535445505052", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-            pulleyTeeth: { uuid: LITE_CONFIG_UUID_BASE + "50554c4c4559", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            beltPitch: { uuid: LITE_CONFIG_UUID_BASE + "425049544348", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            currentSensorLimit: { uuid: LITE_CONFIG_UUID_BASE + "53656e736f72", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            speedCurve: { uuid: LITE_CONFIG_UUID_BASE + "537064437276", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            homingSpeed: { uuid: LITE_CONFIG_UUID_BASE + "537064486f6d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float }
-        }
-    },
-    common: {
-        serviceUuid: 0x055E,
-        characteristics: {
-            speed: { uuid: LITE_COMMON_UUID_BASE_1 + "005370656564", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            maxDepth: { uuid: LITE_COMMON_UUID_BASE_1 + "4d6178446570", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            minDepth: { uuid: LITE_COMMON_UUID_BASE_1 + "4d696e446570", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            streamInput: { uuid: LITE_COMMON_UUID_BASE_1 + "53747265616D", properties: ["read", "write", "writeWithoutResponse", "notify"],
-                enc: (v: { position: number, duration: number }) => `${v.position}:${v.duration}`,
-                dec: v => {
-                    const [position, duration] = v.split(":");
-                    return { position: Number.parseFloat(position), duration: Number.parseFloat(duration) };
-                }
-            },
-            targetPosition: { uuid: LITE_COMMON_UUID_BASE_2 + "6f6e54617267", properties: ["read", "notify"], ...LITE_CODECS.float },
-            currentPosition: { uuid: LITE_COMMON_UUID_BASE_2 + "6f6e63757272", properties: ["read", "notify"], ...LITE_CODECS.float },
-            sensation: { uuid: LITE_COMMON_UUID_BASE_3 + "536174696f6e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.float },
-            pattern: { uuid: LITE_COMMON_UUID_BASE_3 + "50617465726e", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.int },
-            patternOptions: { uuid: LITE_COMMON_UUID_BASE_3 + "5061744c7374", properties: ["read", "write"] }
-        }
-    }
-} as const satisfies LiteSpecSkeleton;
 // #endregion
 
 // #region Type generators
@@ -232,7 +266,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
         this.#clearGenerated();
     }
 
-    // #region Dynamic method generators
+    // #region Lifecycle
     #clearGenerated(): void {
         for (const [bluetooth, signature] of this.#generatedNotifierSignatures) {
             bluetooth.removeEventListener("characteristicvaluechanged", signature);
@@ -297,6 +331,12 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                         case "write": {
                             if (charSpec.properties.includes("writeWithoutResponse") || !charSpec.enc) break;
                             if (!characteristic.properties.write) throw new DOMException("Characteristic missing required write property", "NotSupportedError");
+                            /* As it is right now this lite api provides no way to tell if a write was valid
+                             * One possible solution would be to watch the returned notify value if the characteristic has it and check if the value is the same as thee one written
+                             * However this wouldn't work for all
+                             * The firmware does set the characteristic to a fail string on error, but the read operation immediately overrides it with a valid value
+                             * So in that manner we cannot read back the char to check if it failed
+                             */
                             (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
                                 (v, ct) => this.#write(characteristic, charSpec.enc!(v), false, ct);
                             break;
@@ -328,9 +368,12 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     }
     // #endregion
 
-    // #region Lifecycle
     protected override async _onBeforeDisconnect(): Promise<void> {
         this.#clearGenerated();
+    }
+
+    protected async _onDisconnected(wasConnected: boolean): Promise<void> {
+        this.#characteristics = {} as LiteGatts;
     }
     // #endregion
 
@@ -361,6 +404,11 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                 description
             };
         }
+    }
+
+    async updateAndRestart(ct?: ICancellationToken): Promise<void> {
+        if (!this.isConnected) throw new DOMException("Device is not connected", "NotSupportedError");
+        return this._taskQueue.enqueue(() => this.#characteristics.config.updateAndRestart.writeValueWithResponse(this._enc.encode("1")));
     }
     // #endregion
 
