@@ -160,7 +160,7 @@ type LiteHasProperty<Props extends readonly string[], Target extends string> = T
 
 type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
 
-type LiteGetter<T> = (ct?: CancellationToken) => Promise<T>;
+type LiteGetter<T> = (ct?: ICancellationToken) => Promise<T>;
 type LiteGetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
     -readonly [ServiceKey in keyof T]: {
         -readonly [CharKey in keyof T[ServiceKey]["characteristics"] as CharKey extends string
@@ -176,7 +176,7 @@ type LiteGetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
     };
 }[keyof T]>;
 
-type LiteSetter<T> = (v: T, ct?: CancellationToken) => Promise<void>;
+type LiteSetter<T> = (v: T, ct?: ICancellationToken) => Promise<void>;
 type LiteSetterGenerator<T extends LiteSpecSkeleton> = UnionToIntersection<{
     -readonly [ServiceKey in keyof T]: {
         -readonly [CharKey in keyof T[ServiceKey]["characteristics"] as CharKey extends string
@@ -423,10 +423,15 @@ class OssmLiteClientImpl extends BleConnectionHandler {
         if (!this.isConnected) throw new DOMException("Device is not connected", "NotSupportedError");
         return this._taskQueue.enqueue(() => this.#characteristics.config.updateAndRestart.writeValueWithResponse(this._enc.encode("1")));
     }
+
+    async emergencyStop(ct?: ICancellationToken) {
+        this._taskQueue.clearQueue();
+        this.generated.setSpeed(0, ct);
+    }
     // #endregion
 
     // #region Helpers
-    async #read(characteristic: BluetoothRemoteGATTCharacteristic, cancellationToken?: CancellationToken): Promise<string> {
+    async #read(characteristic: BluetoothRemoteGATTCharacteristic, cancellationToken?: ICancellationToken): Promise<string> {
         const [cts, ct] = this.#getCancellationToken(cancellationToken);
         try { return this._dec.decode(await this._taskQueue.enqueue(() => characteristic.readValue(), ct)); }
         finally { cts?.dispose(); }
