@@ -5,7 +5,7 @@ import { SingleEvent, SingleEventSource } from "./SingleEvent";
 import { enforceRange } from "./Helpers";
 import { CancellationToken, CancellationTokenSource, ICancellationToken } from "./CancellationToken";
 
-const OSSM_SERVICE_UUID = "522b443a-4f53-534d-0001-420badbabe69";
+export const OSSM_SERVICE_UUID = "522b443a-4f53-534d-0001-420badbabe69";
 
 const OSSM_SURFACE_STREAM_MAP = {
     [RadSchema.RadSurface.Essential]: "essential.live",

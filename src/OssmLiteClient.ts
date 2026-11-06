@@ -63,6 +63,7 @@ const LITE_UUID_COMMON_BASE_1 = "4f53534d-436f-6d6d-6f6e-";
 const LITE_UUID_COMMON_BASE_2 = "4f53534d-506f-7369-7469-";
 const LITE_UUID_COMMON_BASE_3 = "4f53534d-456e-6769-6e65-";
 const LITE_UUID_CONFIG_BASE = "4f53534d-436f-6e66-6967-";
+const LITE_UUID_AP_BASE = "4F53534D-6164-7661-6E63-";
 
 // https://github.com/fray-d/OSSM-Lite/tree/e1ff45d8eafbf43e1d6b7f5f9a35a8277faa9b9b/Software/src/services/communication
 const LITE_BLE_SPEC = {
@@ -99,7 +100,7 @@ const LITE_BLE_SPEC = {
             homingType: { uuid: LITE_UUID_CONFIG_BASE + "486F6D696E67", properties: ["read", "write", "writeWithoutResponse", "notify"],
                 enc: (v: LiteHomingType) => v.toString(), // Given this is using TS assume type safety, if JS is used and an invalid value is passed let the machine catch it
                 dec: v => Number.parseInt(v, 10) as LiteHomingType
-            }, // TODO: See LiteHomingType
+            },
             railLength: { uuid: LITE_UUID_CONFIG_BASE + "4C656E677468", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) },
             invertRailDirection: { uuid: LITE_UUID_CONFIG_BASE + "496E76657274", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.boolean },
             homeBetweenModes: { uuid: LITE_UUID_CONFIG_BASE + "5265486F6D65", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.boolean },
@@ -118,10 +119,46 @@ const LITE_BLE_SPEC = {
             beltPitch: { uuid: LITE_UUID_CONFIG_BASE + "425049544348", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) },
             currentSensorLimit: { uuid: LITE_UUID_CONFIG_BASE + "53656e736f72", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) }, // This has bound ranges in firmware but I don't want to hardcode limits in-case these bounds change (firmware bounds are 1.5 to 5.0)
             speedCurve: { uuid: LITE_UUID_CONFIG_BASE + "537064437276", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) }, // Firmware bounds are 0.5 to 1
-            homingSpeed: { uuid: LITE_UUID_CONFIG_BASE + "537064486f6d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) }// Firmware bounds are 10 to 40
+            homingSpeed: { uuid: LITE_UUID_CONFIG_BASE + "537064486f6d", properties: ["read", "write", "writeWithoutResponse", "notify"], ...LITE_CODECS.number({ min: 0 }) } // Firmware bounds are 10 to 40
+        }
+    },
+    advancedPenetration: {
+        serviceUuid: 0x055A,
+        characteristics: {
+            advancedPenetrationConfig: { uuid: LITE_UUID_AP_BASE + "656473746174", properties: ["read", "notify"],
+                /* The currently loaded advanced config */
+                dec: (v): LiteAPConfig => {
+                    const parseField = (s: string): LiteAPControlEntry => {
+                        const parts = s.split(":").map(Number);
+                        return {
+                            value: parts[0],
+                            amplitude: parts[1], // In JS if the index is out of bounds on an array it just returns undefined which is fine for this object
+                            inStep: parts[2],
+                            inWait: parts[3],
+                            outStep: parts[4],
+                            outWait: parts[5],
+                            offset: parts[6]
+                        };
+                    };
+                    const fields = v.split(",")
+                    return {
+                        maxDepth: parseField(fields[0]),
+                        minDepth: parseField(fields[1]),
+                        inSpeed: parseField(fields[2]),
+                        outSpeed: parseField(fields[3]),
+                        inAcceleration: parseField(fields[4]),
+                        outAcceleration: parseField(fields[5]),
+                        speed: parseField(fields[6]),
+                    };
+                }
+            },
+            advancedControl: { uuid: LITE_UUID_AP_BASE + "6564636F6E74", properties: ["read", "write", "writeWithoutResponse"] }, // Implemented in class
+            advancedPresets: { uuid: LITE_UUID_AP_BASE + "656470727374", properties: ["read", "write"] }, // Implemented in class
         }
     }
 } as const satisfies LiteSpecSkeleton;
+
+export const OSSM_LITE_SERVICE_UUIDS = Object.values(LITE_BLE_SPEC).map(service => service.serviceUuid);
 
 export enum LiteHomingType {
     None = 0,
@@ -129,6 +166,31 @@ export enum LiteHomingType {
     SingleSided = 2,
     DoubleTap = 3
 };
+
+enum LiteAPControlModifier {
+    Amplitude = 0,
+    InStep = 1,
+    InWait = 2,
+    OutStep = 3,
+    OutWait = 4,
+    Offset = 5,
+}
+
+enum LiteAPControl {
+    MaxDepth = 0,
+    MinDepth = 1,
+    InSpeed = 2,
+    OutSpeed = 3,
+    InAcceleration = 4,
+    OutAcceleration = 5,
+    Speed = 6,
+}
+
+type LiteAPControlEntry = { value: number } & { [K in Uncapitalize<keyof typeof LiteAPControlModifier>]?: number };
+
+export type LiteAPConfig = { [K in Uncapitalize<keyof typeof LiteAPControl>]: LiteAPControlEntry };
+
+export type LiteWriteAdvancedPatternParams = { [K in keyof LiteAPConfig]?: Partial<LiteAPConfig[K]> };
 
 type LiteSpecSkeletonCharacteristic = {
     uuid: string;
@@ -226,7 +288,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     static async pairDevice(): Promise<OssmLiteClient> {
         const bleDevice = await navigator.bluetooth.requestDevice({
             filters: [{ name: "OSSM" }],
-            optionalServices: Object.values(LITE_BLE_SPEC).map(service => service.serviceUuid)
+            optionalServices: OSSM_LITE_SERVICE_UUIDS
         });
         return new OssmLiteClientImpl(bleDevice) as OssmLiteClient;
     }
@@ -237,6 +299,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     #defaultTimeoutMs = 6000;
     #characteristics = {} as LiteGatts;
     #generatedNotifierSignatures: Map<BluetoothRemoteGATTCharacteristic, (e: Event) => void> = new Map();
+    #isInAdvancedPenetrationMode = false;
 
     get on(): Readonly<LiteNotifiers<false>> { return this.#on; }
     get defaultTimeoutMs(): number | null { return this.#defaultTimeoutMs == -1 ? null : this.#defaultTimeoutMs; }
@@ -245,6 +308,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
             throw new DOMException("Value must be a positive integer or -1");
         this.#defaultTimeoutMs = value;
     }
+    get isInAdvancedPenetrationMode() { return this.#isInAdvancedPenetrationMode; }
 
     /**
      * Provides access to the underlying BLE device in-case any additional functionality is required.  
@@ -275,6 +339,13 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                 (this.#on as any as Record<string, SingleEventSource<[unknown]>>)[charKey] = new SingleEventSource();
             }
         }
+
+        /* Used to determine the active mode
+         * The active mode on the device switches automatically when the pattern or AP config is changed
+         * Required so the e-stop function calls to the right method
+         */
+        this.on.pattern.subscribe(p => this.#isInAdvancedPenetrationMode = false);
+        this.on.advancedPenetrationConfig.subscribe(p => this.#isInAdvancedPenetrationMode = true);
 
         // Generate methods but set them to throw if called since we aren't ready yet
         this.#clearGenerated();
@@ -391,9 +462,9 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     // #endregion
 
     // #region Custom methods
-    async *getPatterns(ct?: ICancellationToken): AsyncGenerator<OssmSchema.OssmPattern, void, unknown> {
-        const cts = !ct && this.defaultTimeoutMs ? CancellationTokenSource.createWithTimeout(this.defaultTimeoutMs) : undefined;
-        ct = ct ?? cts?.token ?? CancellationToken.None;
+    /** Fetches the available patterns from the device */
+    async *getPatterns(cancellationToken?: ICancellationToken): AsyncGenerator<OssmSchema.OssmPattern, void, unknown> {
+        const [cts, ct] = this.#getCancellationToken(cancellationToken);
 
         let idx = 0;
         while (true) {
@@ -403,7 +474,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                 this._debugLog("Fetching pattern info for idx", idx);
                 await this.#characteristics.common.patternOptions.writeValue(payload);
                 return await this.#characteristics.common.patternOptions.readValue();
-            }));
+            }, ct));
 
             // Empty string indicates we've reached the end of the pattern list
             if (!valueStr || valueStr.trim() === "")
@@ -417,34 +488,165 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                 description
             };
         }
+
+        cts?.dispose();
     }
 
+    /** Triggers the device to restart */
     async updateAndRestart(ct?: ICancellationToken): Promise<void> {
-        if (!this.isConnected) throw new DOMException("Device is not connected", "NotSupportedError");
-        return this._taskQueue.enqueue(() => this.#characteristics.config.updateAndRestart.writeValueWithResponse(this._enc.encode("1")));
+        await this.#write(this.#characteristics.config.updateAndRestart, "1", true, ct);
     }
 
-    async emergencyStop(ct?: ICancellationToken) {
+    /** Emergency stops the device */
+    async emergencyStop(ct?: ICancellationToken): Promise<void> {
         this._taskQueue.clearQueue();
-        this.generated.setSpeed(0, ct);
+        if (this.isInAdvancedPenetrationMode)
+            await this.writeAdvancedPenetrationConfig({ speed: { value: 0 } });
+        else
+            await this.generated.setSpeed(0, ct);
+    }
+
+    /**
+     * Gets the advanced patterns from the devices non-volatile storage
+     * @returns A list of advanced pattern names from the device
+     */
+    async getAdvancedPenetrationConfigNames(ct?: ICancellationToken): Promise<string[]> {
+        return (await this.#read(this.#characteristics.advancedPenetration.advancedPresets, ct)).split(",").filter(Boolean);
+    }
+
+    /**
+     * Loads an advanced pattern from the devices non-volatile storage
+     * @param name The name of the pattern to load
+     * @throws If the pattern does not exist on the device
+     */
+    async loadAdvancedPenetrationConfig(name: string, ct?: ICancellationToken): Promise<void> {
+        if (!(await this.getAdvancedPenetrationConfigNames()).includes(name))
+            throw new DOMException("Pattern does not exist on device", "NotFoundError");
+        await this.#write(this.#characteristics.advancedPenetration.advancedPresets, `:${name}`, true, ct);
+    }
+
+    /**
+     * Writes a set of advanced pattern parameters and immediately executes them
+     * 
+     * *Note:* This will switch operating modes on the device if not in AdvancedPenetration mode already
+     *
+     * **WARNING:** If a mode switch is triggered then re-homing of the rail may occur!
+     * 
+     * @param parameters A dictionary of advanced pattern parameters, not all keys or properties have to be set
+     * @see {@link OssmLiteClientGenerated.getAdvancedParameters} to get the currently active advanced control parameters
+     */
+    async writeAdvancedPenetrationConfig(parameters: LiteWriteAdvancedPatternParams, ct?: ICancellationToken): Promise<void> {
+        const commandParts: string[] = [];
+
+        for (const [controlKeyStr, entry] of Object.entries(parameters)) {
+            if (!entry) continue;
+
+            // Re-capitalize first letter (TS generated type uncapitalizes it which forces callers to this method to use that uncapitalized key)
+            const enumKey = controlKeyStr.charAt(0).toUpperCase() + controlKeyStr.slice(1);
+            const control = LiteAPControl[enumKey as keyof typeof LiteAPControl];
+            if (control === undefined) continue;
+
+            // Control base value
+            if (entry.value !== undefined) {
+                let min: number, max: number;
+                switch (control) {
+                    case LiteAPControl.InSpeed:
+                    case LiteAPControl.OutSpeed:
+                        min = 1; max = 100; break;
+                    case LiteAPControl.InAcceleration:
+                    case LiteAPControl.OutAcceleration:
+                        min = 40; max = 100; break;
+                    case LiteAPControl.MaxDepth:
+                    case LiteAPControl.MinDepth:
+                    case LiteAPControl.Speed:
+                        min = 0; max = 100; break;
+                }
+                enforceRange(entry.value, min, max, `${LiteAPControl[control]} must be between ${min} and ${max}`);
+                commandParts.push(`${control}:${entry.value}`);
+            }
+
+            for (const [propKey, modifierValue] of Object.entries(entry)) {
+                if (propKey === 'value' || modifierValue === undefined) continue; // Skip the base value entry if present (or if value is undefined)
+
+                const modifierKey = propKey.charAt(0).toUpperCase() + propKey.slice(1);
+                const modifier = LiteAPControlModifier[modifierKey as keyof typeof LiteAPControlModifier];
+                if (modifier === undefined) continue;
+
+                let min: number, max: number;
+                switch (modifier) {
+                    case LiteAPControlModifier.InStep:
+                    case LiteAPControlModifier.OutStep:
+                        min = 1; max = 25; break;
+                    case LiteAPControlModifier.InWait:
+                    case LiteAPControlModifier.OutWait:
+                        min = 0; max = 25; break;
+                    case LiteAPControlModifier.Amplitude:
+                    case LiteAPControlModifier.Offset:
+                        min = 0; max = 100; break;
+                }
+                enforceRange(modifierValue, min, max, `${modifierKey} must be between ${min} and ${max}`);
+                commandParts.push(`${control}:${modifier}:${modifierValue}`);
+            }
+        }
+
+        const commandStr = commandParts.join(",") + ",";
+        if (commandStr === ",") return;
+
+        await this.#write(this.#characteristics.advancedPenetration.advancedControl, commandStr, true, ct);
+    }
+
+    /**
+     * Saves the currently active advanced pattern to the devices non-volatile storage
+     * @param name The name to use when saving the pattern
+     */
+    async saveAdvancedPenetrationConfig(name: string, ct?: ICancellationToken): Promise<void> {
+        await this.#write(this.#characteristics.advancedPenetration.advancedPresets, `>${name}`, true, ct);
+    }
+
+    /**
+     * Deletes an advanced pattern from the devices non-volatile storage
+     * @param name The name of the pattern to delete
+     * @throws If the pattern does not exist on the device
+     */
+    async deleteAdvancedPenetrationConfig(name: string, ct?: ICancellationToken): Promise<void> {
+        if (!(await this.getAdvancedPenetrationConfigNames()).includes(name))
+            throw new DOMException("Pattern does not exist on device", "NotFoundError");
+        await this.#write(this.#characteristics.advancedPenetration.advancedPresets, `<${name}`, true, ct);
+    }
+
+    /** Resets all stored advanced patterns to factory defaults */
+    async resetAllAdvancedPenetrationConfigs(ct?: ICancellationToken): Promise<void> {
+        await this.#write(this.#characteristics.advancedPenetration.advancedPresets, '^', true, ct);
     }
     // #endregion
 
     // #region Helpers
     async #read(characteristic: BluetoothRemoteGATTCharacteristic, cancellationToken?: ICancellationToken): Promise<string> {
+        this.#requireReady();
         const [cts, ct] = this.#getCancellationToken(cancellationToken);
-        try { return this._dec.decode(await this._taskQueue.enqueue(() => characteristic.readValue(), ct)); }
+        try {
+            return this._dec.decode(await this._taskQueue.enqueue(() => {
+                this.#requireReady();
+                return characteristic.readValue()
+            }, ct));
+        }
         finally { cts?.dispose(); }
     }
 
     async #write(characteristic: BluetoothRemoteGATTCharacteristic, value: string, withoutResponse: boolean, cancellationToken?: ICancellationToken): Promise<void> {
+        this.#requireReady();
         const [cts, ct] = this.#getCancellationToken(cancellationToken);
         const buf = this._enc.encode(value);
-        try { return this._taskQueue.enqueue(() => withoutResponse ? characteristic.writeValueWithoutResponse(buf) : characteristic.writeValue(buf), ct); }
+        try {
+            return this._taskQueue.enqueue(() => {
+                this.#requireReady();
+                return withoutResponse ? characteristic.writeValueWithoutResponse(buf) : characteristic.writeValue(buf)
+            }, ct);
+        }
         finally { cts?.dispose(); }
     }
 
-    #notifyHandler(event: Event, characteristicKey: string, decoder: LiteCodec<unknown>["dec"]) {
+    #notifyHandler(event: Event, characteristicKey: string, decoder: LiteCodec<unknown>["dec"]): void {
         if (!event.target) return;
         const target = event.target as BluetoothRemoteGATTCharacteristic;
 
@@ -461,6 +663,11 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     #getCancellationToken(cancellationToken?: ICancellationToken): [CancellationTokenSource | undefined, ICancellationToken] {
         const cts = !cancellationToken && this.defaultTimeoutMs ? CancellationTokenSource.createWithTimeout(this.defaultTimeoutMs) : undefined;
         return [cts, cancellationToken ?? cts?.token ?? CancellationToken.None];
+    }
+
+    #requireReady(): void {
+        if (!this.isConnected)
+            throw new DOMException("Not ready", "InvalidStateError");
     }
 
     static #upperFirst(string: string) {
