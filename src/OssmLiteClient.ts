@@ -246,6 +246,20 @@ class OssmLiteClientImpl extends BleConnectionHandler {
         this.#defaultTimeoutMs = value;
     }
 
+    /**
+     * Provides access to the underlying BLE device in-case any additional functionality is required.  
+     * For example the Lite firmware supports service/characteristic auto-discovery with descriptors.  
+     * This can be useful for dynamically building UIs, or for accessing properties that this Library doesn't provide.
+     * 
+     * **WARNING:** Executing GATT operations directly on this object will bypass internal task queue scheduling.  
+     * This can lead to race conditions and dropped commands, as the Web Bluetooth stack can only process operations sequentially.
+     */
+    /* I had considered adding auto-discovery to this library (see commit 3dad12029e081917155a12b7f3df9ae9639ac557)
+     * but ultimately decided against it in order to keep this library type strict and clean.
+     * I did experiment with auto-discovery but it slowed down startup a lot and meant raw data buffers were exposed
+     */
+    get device() { return this._device; }
+
     private get generated(): OssmLiteClientGenerated { return this as unknown as OssmLiteClientGenerated; }
     constructor(device: BluetoothDevice) {
         super(device);
