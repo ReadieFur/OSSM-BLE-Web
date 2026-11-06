@@ -137,7 +137,7 @@ type LiteSpecSkeletonCharacteristic = {
 
 type LiteSpecSkeleton = {
     [key: string]: {
-        serviceUuid: string | number;
+        serviceUuid: BluetoothCharacteristicUUID;
         characteristics: {
             [charKey: string]: LiteSpecSkeletonCharacteristic;
         };
@@ -222,6 +222,16 @@ type OssmLiteClientGenerated = Omit<LiteMemberGenerator<LiteSpec>, keyof OssmLit
  * And where any additional methods or overrides are written
  */
 
+type LiteGenericCharacteristic = {
+    uuid: BluetoothCharacteristicUUID;
+    descriptor?: string;
+    type?: number;
+    valueConstraints?: DataView<ArrayBufferLike>;
+    read?: LiteGetter<DataView<ArrayBufferLike>>;
+    write?: LiteSetter<BufferSource>;
+    onNotify?: SingleEvent<[DataView<ArrayBufferLike>]>;
+};
+
 class OssmLiteClientImpl extends BleConnectionHandler {
     static async pairDevice(): Promise<OssmLiteClient> {
         const bleDevice = await navigator.bluetooth.requestDevice({
@@ -235,8 +245,9 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     protected readonly _dec = new TextDecoder();
     readonly #on = {} as LiteNotifiers<true>;
     #defaultTimeoutMs = 6000;
-    #characteristics = {} as LiteGatts;
-    #generatedNotifierSignatures: Map<BluetoothRemoteGATTCharacteristic, (e: Event) => void> = new Map();
+    #characteristics = {} as LiteGatts; // Internal known schema driven characteristics
+    #discovered: Record<string, Record<string, LiteGenericCharacteristic>> = {}; // Generic auto-discovered characteristics (future proofing for unknown chars)
+    #generatedNotifierSignatures: [BluetoothRemoteGATTCharacteristic, (e: Event) => void][] = [];
 
     get on(): Readonly<LiteNotifiers<false>> { return this.#on; }
     get defaultTimeoutMs(): number | null { return this.#defaultTimeoutMs == -1 ? null : this.#defaultTimeoutMs; }
@@ -245,6 +256,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
             throw new DOMException("Value must be a positive integer or -1");
         this.#defaultTimeoutMs = value;
     }
+    get discovered(): Readonly<Record<string, Readonly<Record<string, Readonly<LiteGenericCharacteristic>>>>> { return this.#discovered; }
 
     private get generated(): OssmLiteClientGenerated { return this as unknown as OssmLiteClientGenerated; }
     constructor(device: BluetoothDevice) {
@@ -300,71 +312,140 @@ class OssmLiteClientImpl extends BleConnectionHandler {
 
     protected async _setupServicesAndCharacteristics(gatt: BluetoothRemoteGATTServer): Promise<void> {
         this.#characteristics = {} as LiteGatts;
+        this.#discovered = {};
 
-        const tasks: Promise<unknown>[] = [];
         for (const [serviceKey, serviceSpec] of Object.entries(LITE_BLE_SPEC as LiteSpecSkeleton)) {
             const gattService = await this._taskQueue.enqueue(() => gatt.getPrimaryService(serviceSpec.serviceUuid));
             const deviceCharacteristics = new Map((await this._taskQueue.enqueue(() => gattService.getCharacteristics())).map(c => [c.uuid.toLowerCase(), c]));
 
-            this._debugLog("_setupServicesAndCharacteristics service", serviceKey, serviceSpec.serviceUuid)
+            this._debugLog("_setupServicesAndCharacteristics service", serviceKey, serviceSpec.serviceUuid);
 
-            const serviceCharsObj = {} as Record<string, BluetoothRemoteGATTCharacteristic>;
+            // Map spec UUIDs to their keys for the generic characteristic discovery loop & ensure required spec entries exist
+            const uuidToSpecKey = new Map<string, string>();
+            for (const [charKey, charSpec] of Object.entries(serviceSpec.characteristics)) {
+                uuidToSpecKey.set(charSpec.uuid.toLowerCase(), charKey);
+                if (!deviceCharacteristics.get(charSpec.uuid.toLowerCase())) {
+                    throw new DOMException(`[${this._device.id} OssmLiteClient] Characteristic ${charKey} not found`, "NotFoundError");
+                }
+            }
 
-            for (const charKey of Object.keys(serviceSpec.characteristics)) {
-                const charSpec = serviceSpec.characteristics[charKey];
+            const knownServiceChars = {} as Record<string, BluetoothRemoteGATTCharacteristic>;
+            const discoveredServiceChars = {} as Record<string, LiteGenericCharacteristic>;
 
-                const characteristic = deviceCharacteristics.get(charSpec.uuid.toLowerCase());
-                if (!characteristic) throw new DOMException(`[OssmLiteClient] Characteristic ${charKey} not found`, "NotFoundError");
-                this._debugLog("_setupServicesAndCharacteristics characteristic", charKey, characteristic.uuid)
+            // Iterate over all device characteristics
+            for (const [uuid, characteristic] of deviceCharacteristics) {
+                this._debugLog("_setupServicesAndCharacteristics characteristic", uuid);
 
-                serviceCharsObj[charKey] = characteristic;
+                // #region Known characteristic in spec
+                const charKey = uuidToSpecKey.get(uuid);
+                const charSpec = charKey ? serviceSpec.characteristics[charKey] : undefined;
+                if (charSpec) {
+                    knownServiceChars[charKey!] = characteristic;
 
-                for (const prop of charSpec.properties) {
-                    switch (prop) {
-                        case "read": {
-                            if (!charSpec.dec) break;
-                            if (!characteristic.properties.read) throw new DOMException("Characteristic missing required read property", "NotSupportedError");
-                            (this.generated as any as Record<string, LiteGetter<unknown>>)[`get${OssmLiteClientImpl.#upperFirst(charKey)}`] =
-                                async ct => charSpec.dec!(await this.#read(characteristic, ct));
-                            break;
-                        }
-                        case "write": {
-                            if (charSpec.properties.includes("writeWithoutResponse") || !charSpec.enc) break;
-                            if (!characteristic.properties.write) throw new DOMException("Characteristic missing required write property", "NotSupportedError");
-                            /* As it is right now this lite api provides no way to tell if a write was valid
-                             * One possible solution would be to watch the returned notify value if the characteristic has it and check if the value is the same as thee one written
-                             * However this wouldn't work for all
-                             * The firmware does set the characteristic to a fail string on error, but the read operation immediately overrides it with a valid value
-                             * So in that manner we cannot read back the char to check if it failed
-                             */
-                            (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
-                                (v, ct) => this.#write(characteristic, charSpec.enc!(v), false, ct);
-                            break;
-                        }
-                        case "writeWithoutResponse": {
-                            if (!charSpec.enc) break;
-                            if (!characteristic.properties.writeWithoutResponse) throw new DOMException("Characteristic missing required writeWithoutResponse property", "NotSupportedError");
-                            (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey)}`] =
-                                (v, ct) => this.#write(characteristic, charSpec.enc!(v), true, ct);
-                            break;
-                        }
-                        case "notify": {
-                            if (!charSpec.dec) break;
-                            if (!characteristic.properties.notify && !characteristic.properties.indicate) throw new DOMException("Characteristic missing required notify property", "NotSupportedError");
-                            
-                            const notifySignature = (event: Event) => this.#notifyHandler(event, charKey, charSpec.dec!);
-                            characteristic.addEventListener("characteristicvaluechanged", notifySignature);
-                            this.#generatedNotifierSignatures.set(characteristic, notifySignature);
-                            tasks.push(this._taskQueue.enqueue(() => characteristic.startNotifications()));
-                            break;
+                    for (const prop of charSpec.properties) {
+                        switch (prop) {
+                            case "read": {
+                                if (!charSpec.dec) break;
+                                if (!characteristic.properties.read) throw new DOMException("Characteristic missing required read property", "NotSupportedError");
+                                (this.generated as any as Record<string, LiteGetter<unknown>>)[`get${OssmLiteClientImpl.#upperFirst(charKey!)}`] =
+                                    async ct => charSpec.dec!(await this.#read(characteristic, ct));
+                                break;
+                            }
+                            case "write": {
+                                if (charSpec.properties.includes("writeWithoutResponse") || !charSpec.enc) break;
+                                if (!characteristic.properties.write) throw new DOMException("Characteristic missing required write property", "NotSupportedError");
+                                /* As it is right now this lite api provides no way to tell if a write was valid
+                                * One possible solution would be to watch the returned notify value if the characteristic has it and check if the value is the same as thee one written
+                                * However this wouldn't work for all
+                                * The firmware does set the characteristic to a fail string on error, but the read operation immediately overrides it with a valid value
+                                * So in that manner we cannot read back the char to check if it failed
+                                */
+                                (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey!)}`] =
+                                    (v, ct) => this.#write(characteristic, charSpec.enc!(v), false, ct);
+                                break;
+                            }
+                            case "writeWithoutResponse": {
+                                if (!charSpec.enc) break;
+                                if (!characteristic.properties.writeWithoutResponse) throw new DOMException("Characteristic missing required writeWithoutResponse property", "NotSupportedError");
+                                (this.generated as any as Record<string, LiteSetter<unknown>>)[`set${OssmLiteClientImpl.#upperFirst(charKey!)}`] =
+                                    (v, ct) => this.#write(characteristic, charSpec.enc!(v), true, ct);
+                                break;
+                            }
+                            case "notify": {
+                                if (!charSpec.dec) break;
+                                if (!characteristic.properties.notify && !characteristic.properties.indicate) throw new DOMException("Characteristic missing required notify property", "NotSupportedError");
+                                
+                                const notifySignature = (event: Event) => this.#notifyHandler(event, charKey!, charSpec.dec!);
+                                characteristic.addEventListener("characteristicvaluechanged", notifySignature);
+                                this.#generatedNotifierSignatures.push([characteristic, notifySignature]);
+                                await this._taskQueue.enqueue(() => characteristic.startNotifications());
+                                break;
+                            }
                         }
                     }
                 }
+                // #endregion
 
-                (this.#characteristics as Record<string, any>)[serviceKey] = serviceCharsObj;
+                // #region Generic characteristic discovery
+                const discoveredCharacteristic: LiteGenericCharacteristic = {
+                    uuid: characteristic.uuid
+                };
+
+                // This API exposes common BLE properties on a lot of it's characteristics so we can query information for generic discovered services
+                // Description (used as property name)
+                try { discoveredCharacteristic.descriptor = this._dec.decode(await this._taskQueue.enqueue(async () => (await characteristic.getDescriptor(0x2901)).readValue())); }
+                catch { /* Not present */ }
+
+                // Value type
+                try { discoveredCharacteristic.type = (await this._taskQueue.enqueue(async () => (await characteristic.getDescriptor(0x2901)).readValue())).getUint8(0); }
+                catch { /* Not present */ }
+
+                // Value constraints
+                try { discoveredCharacteristic.valueConstraints = await this._taskQueue.enqueue(async () => (await characteristic.getDescriptor(0x2906)).readValue()); }
+                catch { /* Not present */ }
+
+                if (characteristic.properties.read) {
+                    discoveredCharacteristic.read = cancellationToken => {
+                        const [cts, ct] = this.#getCancellationToken(cancellationToken);
+                        try { return this._taskQueue.enqueue(() => characteristic.readValue(), ct); }
+                        finally { cts?.dispose(); }
+                    };
+                }
+
+                if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
+                    const writer = characteristic.properties.writeWithoutResponse ? characteristic.writeValueWithoutResponse : characteristic.writeValue;
+                    discoveredCharacteristic.write = (v, cancellationToken) => {
+                        const [cts, ct] = this.#getCancellationToken(cancellationToken);
+                       try { return this._taskQueue.enqueue(() => writer(v), ct); }
+                        finally { cts?.dispose(); }
+                    };
+                }
+
+                if (characteristic.properties.notify || characteristic.properties.indicate) {
+                    const dispatcher = new SingleEventSource<[DataView<ArrayBufferLike>]>();
+                    discoveredCharacteristic.onNotify = dispatcher;
+
+                    const notifyCallback = (e: Event) => {
+                        if (!e.target) return;
+                        const target = e.target as BluetoothRemoteGATTCharacteristic;
+                        if (target.value) dispatcher.dispatch(target.value);
+                    };
+                    characteristic.addEventListener("characteristicvaluechanged", notifyCallback);
+                    this.#generatedNotifierSignatures.push([characteristic, notifyCallback]);
+                    
+                    await this._taskQueue.enqueue(() => characteristic.startNotifications());
+                }
+
+                const discoveredLookupKey = discoveredCharacteristic.descriptor
+                    ? discoveredCharacteristic.descriptor.replace(/[^a-zA-Z0-9]+(.)/g, (_, chr) => chr.toUpperCase()).replace(/^[A-Z]/, c => c.toLowerCase()) // Converts to camelCase
+                    : uuid.toLowerCase(); // Fall back to UUID as identifier if name is not present
+                discoveredServiceChars[discoveredLookupKey] = discoveredCharacteristic;
+                // #endregion
             }
+
+            (this.#characteristics as Record<string, any>)[serviceKey] = knownServiceChars;
+            this.#discovered[serviceKey] = discoveredServiceChars;
         }
-        await Promise.all(tasks);
     }
 
     protected override async _onBeforeDisconnect(): Promise<void> {
@@ -373,6 +454,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
 
     protected async _onDisconnected(wasConnected: boolean): Promise<void> {
         this.#characteristics = {} as LiteGatts;
+        this.#discovered = {};
     }
     // #endregion
 
@@ -421,7 +503,8 @@ class OssmLiteClientImpl extends BleConnectionHandler {
     async #write(characteristic: BluetoothRemoteGATTCharacteristic, value: string, withoutResponse: boolean, cancellationToken?: ICancellationToken): Promise<void> {
         const [cts, ct] = this.#getCancellationToken(cancellationToken);
         const buf = this._enc.encode(value);
-        try { return this._taskQueue.enqueue(() => withoutResponse ? characteristic.writeValueWithoutResponse(buf) : characteristic.writeValue(buf), ct); }
+        const writer = withoutResponse ? characteristic.writeValueWithoutResponse : characteristic.writeValue;
+        try { return this._taskQueue.enqueue(() => writer(buf), ct); }
         finally { cts?.dispose(); }
     }
 

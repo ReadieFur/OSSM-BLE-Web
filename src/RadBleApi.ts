@@ -171,7 +171,6 @@ export class RadBleApi extends BleConnectionHandler {
             spec
         ] as const);
 
-        const tasks: Promise<unknown>[] = [];
         const deviceChars = new Map((await this._taskQueue.enqueue(() => gattService.getCharacteristics())).map(c => [c.uuid.toLowerCase(), c]));
         for (const [key, spec] of entries) {
             const charUuid = `${uuidParts[0]}-${uuidParts[1]}-${uuidParts[2]}-${spec.suffix}-${uuidParts[4]}`;
@@ -205,11 +204,9 @@ export class RadBleApi extends BleConnectionHandler {
             if (charHasNotifyOrIndicate) {
                 console.log("subscribe");
                 char.addEventListener("characteristicvaluechanged", this.#handleIncomingTelemetrySignature);
-                tasks.push(this._taskQueue.enqueue(() => char.startNotifications()));
+                await this._taskQueue.enqueue(() => char.startNotifications());
             }
         }
-        // Await all characteristic notification startups in 'parallel' here (task queue sends them in order but this is still slightly more optimal)
-        await Promise.all(tasks);
 
         // Validate protocol
         const info = this._parseValueAsJson<Schema.RadProtocolInfo>(
