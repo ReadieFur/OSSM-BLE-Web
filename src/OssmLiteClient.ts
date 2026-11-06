@@ -533,7 +533,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
      * **WARNING:** If a mode switch is triggered then re-homing of the rail may occur!
      * 
      * @param parameters A dictionary of advanced pattern parameters, not all keys or properties have to be set
-     * @see {@link OssmLiteClientGenerated.getAdvancedParameters} to get the currently active advanced control parameters
+     * @see {@link OssmLiteClientGenerated.getAdvancedPenetrationConfig} to get the currently active advanced control parameters
      */
     async writeAdvancedPenetrationConfig(parameters: LiteWriteAdvancedPatternParams, ct?: ICancellationToken): Promise<void> {
         const commandParts: string[] = [];
