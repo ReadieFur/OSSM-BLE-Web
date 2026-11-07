@@ -35,6 +35,33 @@ jobs:
       - name: Run production build
         run: npm run build
 
+      - name: Verify build outputs
+        shell: bash
+        run: |
+          shopt -s nullglob
+          dts_files=(dist/*.d.ts)
+          global_js_files=(dist/*.global.js)
+          js_files=(dist/*.js)
+
+          failed=0
+          if [ ${#dts_files[@]} -eq 0 ]; then
+            echo "::error::Missing required declaration files (*.d.ts) in dist/"
+            failed=1
+          fi
+          if [ ${#global_js_files[@]} -eq 0 ]; then
+            echo "::error::Missing required global bundle files (*.global.js) in dist/"
+            failed=1
+          fi
+          if [ ${#js_files[@]} -eq 0 ]; then
+            echo "::error::Missing required JavaScript files (*.js) in dist/"
+            failed=1
+          fi
+
+          if [ $failed -eq 1 ]; then
+            exit 1
+          fi
+          echo "All required artifact patterns (*.d.ts, *.global.js, *.js) verified successfully."
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
