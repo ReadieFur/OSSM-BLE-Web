@@ -5,6 +5,7 @@ import crc32 from "crc-32";
 import { SingleEvent, SingleEventSource } from "../common/SingleEvent";
 import { AsyncFunctionQueue } from "../common/AsyncFunctionQueue";
 import { CancellationToken, CancellationTokenRegistration, CancellationTokenSource, ICancellationToken } from "../common/CancellationToken";
+import { SnakeToCamelCase } from "../common/Helpers";
 
 // #region Rad ble api metadata
 // Pulled from https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json
@@ -37,10 +38,6 @@ const RAD_CHARACTERISTICS_SPEC = {
 } as const;
 
 // voodoo magic shit (reused from old project, I'm not gonna pretend like I know how this works)
-type SnakeToCamelCase<S extends string> = S extends `${infer Head}_${infer Tail}`
-    ? `${Lowercase<Head>}${Capitalize<SnakeToCamelCase<Tail>>}`
-    : Lowercase<S>;
-
 type RawSpecKey = keyof typeof RAD_CHARACTERISTICS_SPEC;
 type RadCharacteristicKey = SnakeToCamelCase<RawSpecKey>;
 
@@ -179,9 +176,9 @@ export class RadBleApi extends BleConnectionHandler {
 
             if (!char) {
                 if (spec.required)
-                    throw new DOMException(`[RadBleApi] Characteristic ${key} was required but not found on the target device`, "NotFoundError");
+                    throw new DOMException(`Characteristic ${key} was required but not found on the target device`, "NotFoundError");
                 else if (this.debug)
-                    console.warn(`[RadBleApi] Optional characteristic ${key} was not present on the target device`);
+                    console.warn(`Optional characteristic ${key} was not present on the target device`);
                 continue;
             }
 
@@ -192,7 +189,7 @@ export class RadBleApi extends BleConnectionHandler {
                 /* It seems that, at least from testing against Ossm firmware, the spec doesn't always match the device...
                     * So instead of failing outright, if it was an optional property that failed, warn instead
                     */
-                const message = `[RadBleApi] ${spec.required ? 'Required' : 'Optional'} characteristic ${key} was expected to support notify/indicate`
+                const message = `${spec.required ? 'Required' : 'Optional'} characteristic ${key} was expected to support notify/indicate`
                 if (spec.required)
                     throw new DOMException(message, "NotSupportedError");
                 else if (this.debug)

@@ -391,7 +391,7 @@ class OssmLiteClientImpl extends BleConnectionHandler {
             const gattService = await this._taskQueue.enqueue(() => gatt.getPrimaryService(serviceSpec.serviceUuid));
             const deviceCharacteristics = new Map((await this._taskQueue.enqueue(() => gattService.getCharacteristics())).map(c => [c.uuid.toLowerCase(), c]));
 
-            this._debugLog("_setupServicesAndCharacteristics service", serviceKey, serviceSpec.serviceUuid)
+            this._debugLog("service", serviceKey, serviceSpec.serviceUuid)
 
             const serviceCharsObj = {} as Record<string, BluetoothRemoteGATTCharacteristic>;
 
@@ -399,8 +399,8 @@ class OssmLiteClientImpl extends BleConnectionHandler {
                 const charSpec = serviceSpec.characteristics[charKey];
 
                 const characteristic = deviceCharacteristics.get(charSpec.uuid.toLowerCase());
-                if (!characteristic) throw new DOMException(`[OssmLiteClient] Characteristic ${charKey} not found`, "NotFoundError");
-                this._debugLog("_setupServicesAndCharacteristics characteristic", charKey, characteristic.uuid)
+                if (!characteristic) throw new DOMException(`Characteristic ${charKey} not found`, "NotFoundError");
+                this._debugLog("characteristic", charKey, characteristic.uuid)
 
                 serviceCharsObj[charKey] = characteristic;
 
