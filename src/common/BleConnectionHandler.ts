@@ -9,11 +9,13 @@ export enum BleConnectionState {
     Disconnecting = "disconnecting",
 }
 
+/** @internal */
 export interface GattServiceDefinition {
     uuid: BluetoothServiceUUID;
     characteristics: Record<string, BluetoothCharacteristicUUID>;
 }
 
+/** @internal */
 export type DiscoveredGattService<TDef extends GattServiceDefinition> = {
     service: BluetoothRemoteGATTService;
     characteristics: {
@@ -23,6 +25,7 @@ export type DiscoveredGattService<TDef extends GattServiceDefinition> = {
 
 /**
  * Generic web-bluetooth connection handler
+ * @internal
  */
 export abstract class BleConnectionHandler implements Disposable {
     readonly #handleGattDisconnectedSignature = this.#handleGattDisconnected.bind(this);

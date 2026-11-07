@@ -1,9 +1,9 @@
-import { RadApiBaseParams, RadBleApi, RadTelemetry } from "./RadBleApi";
+import { RadApiBaseParams, RadBleApi, RadTelemetry } from "../rad/RadBleApi";
 import * as OssmSchema from "./OssmProtocolSchema";
-import * as RadSchema from "./RadProtocolSchema";
-import { SingleEvent, SingleEventSource } from "./SingleEvent";
-import { enforceRange } from "./Helpers";
-import { CancellationToken, CancellationTokenSource, ICancellationToken } from "./CancellationToken";
+import * as RadSchema from "../rad/RadProtocolSchema";
+import { SingleEvent, SingleEventSource } from "../common/SingleEvent";
+import { enforceRange } from "../common/Helpers";
+import { CancellationToken, CancellationTokenSource, ICancellationToken } from "../common/CancellationToken";
 
 export const OSSM_SERVICE_UUID = "522b443a-4f53-534d-0001-420badbabe69";
 
