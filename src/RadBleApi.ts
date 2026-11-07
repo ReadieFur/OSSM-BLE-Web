@@ -66,7 +66,7 @@ type RadNotifiableCharacteristicKey = {
         never;
 }[RawSpecKey];
 
-type RadTelemetryObjType<OWNED extends boolean = false> = {
+type RadTelemetryObjType<OWNED extends boolean> = {
     [K in RadNotifiableCharacteristicKey]:
         OWNED extends true ? SingleEventSource<[RadTelemetry]> : SingleEvent<[RadTelemetry]>
 };
@@ -162,7 +162,7 @@ export class RadBleApi extends BleConnectionHandler {
         this.#radCharacteristics = {} as RadCharacteristicGatts;
         this.#radCharacteristicGattMap.clear();
 
-        const gattService = await gatt.getPrimaryService(this.#radServiceUuid);
+        const gattService = await this._taskQueue.enqueue(() => gatt.getPrimaryService(this.#radServiceUuid));
         const uuidParts = this.#radServiceUuid.split("-");
 
         // Iterate over the spec entries for full metadata access
@@ -171,7 +171,8 @@ export class RadBleApi extends BleConnectionHandler {
             spec
         ] as const);
 
-        const deviceChars = new Map((await gattService.getCharacteristics()).map(c => [c.uuid.toLowerCase(), c]));
+        const tasks: Promise<unknown>[] = [];
+        const deviceChars = new Map((await this._taskQueue.enqueue(() => gattService.getCharacteristics())).map(c => [c.uuid.toLowerCase(), c]));
         for (const [key, spec] of entries) {
             const charUuid = `${uuidParts[0]}-${uuidParts[1]}-${uuidParts[2]}-${spec.suffix}-${uuidParts[4]}`;
             const char = deviceChars.get(charUuid);
@@ -204,9 +205,11 @@ export class RadBleApi extends BleConnectionHandler {
             if (charHasNotifyOrIndicate) {
                 console.log("subscribe");
                 char.addEventListener("characteristicvaluechanged", this.#handleIncomingTelemetrySignature);
-                char.startNotifications();
+                tasks.push(this._taskQueue.enqueue(() => char.startNotifications()));
             }
         }
+        // Await all characteristic notification startups in 'parallel' here (task queue sends them in order but this is still slightly more optimal)
+        await Promise.all(tasks);
 
         // Validate protocol
         const info = this._parseValueAsJson<Schema.RadProtocolInfo>(
@@ -219,9 +222,12 @@ export class RadBleApi extends BleConnectionHandler {
      * Called before disconnecting. Cleans up any resources that were allocated during the connection
      */
     protected override async _onBeforeDisconnect(): Promise<void> {
-        for (const characteristic of Object.values(this.#radCharacteristics))
-            if (characteristic.properties.notify || characteristic.properties.read)
+        for (const characteristic of Object.values(this.#radCharacteristics)) {
+            if (characteristic.properties.notify || characteristic.properties.read) {
                 characteristic.removeEventListener("characteristicvaluechanged", this.#handleIncomingTelemetrySignature);
+                characteristic.stopNotifications().catch(e => console.error(`Failed to stop notifications for ${characteristic.uuid}`, e));
+            }
+        }
     }
 
     /**
@@ -313,7 +319,6 @@ export class RadBleApi extends BleConnectionHandler {
                     // Ensure the state is valid to make the ble call
                     this._requireRadCharacteristic("request");
                     await this._radService.request!.writeValueWithoutResponse(payload());
-    
                 };
                 const queuedItem = params.isPriority
                     ? this._taskQueue.prepend(func, ct)
@@ -348,7 +353,7 @@ export class RadBleApi extends BleConnectionHandler {
 
     #handleIncomingTelemetry(event: Event) {
         if (!event.target) return;
-        const target = event.target as BluetoothRemoteGATTCharacteristic
+        const target = event.target as BluetoothRemoteGATTCharacteristic;
 
         const key = this.#radCharacteristicGattMap.get(target);
         if (!key) return;

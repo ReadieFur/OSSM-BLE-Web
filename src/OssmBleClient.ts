@@ -2,8 +2,10 @@ import { RadApiBaseParams, RadBleApi, RadTelemetry } from "./RadBleApi";
 import * as OssmSchema from "./OssmProtocolSchema";
 import * as RadSchema from "./RadProtocolSchema";
 import { SingleEvent, SingleEventSource } from "./SingleEvent";
+import { enforceRange } from "./Helpers";
+import { CancellationToken, CancellationTokenSource, ICancellationToken } from "./CancellationToken";
 
-const OSSM_SERVICE_UUID = "522b443a-4f53-534d-0001-420badbabe69";
+export const OSSM_SERVICE_UUID = "522b443a-4f53-534d-0001-420badbabe69";
 
 const OSSM_SURFACE_STREAM_MAP = {
     [RadSchema.RadSurface.Essential]: "essential.live",
@@ -271,7 +273,7 @@ export class OssmBleClient extends RadBleApi {
     readGpioPin(params: RadApiBaseParams & { pin: number }): Promise<boolean>;
     async readGpioPin(arg: RadApiBaseParams & { pin: number } | number): Promise<boolean> {
         const opts = this._singleArg(arg, "pin");
-        this.#enforceRange(opts.pin, 0, 4, "Invalid GPIO pin number");
+        enforceRange(opts.pin, 0, 4, "Invalid GPIO pin number");
         return (await this.readSensor<OssmSchema.OssmReadResult<boolean>>({ ...opts, path: `analog.expansion${opts.pin}` })).value;
     }
 
@@ -301,7 +303,7 @@ export class OssmBleClient extends RadBleApi {
     // #region setting.write
     // https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/src/services/communication/rad_ble.cpp#L309
     async setGpioPin(params: RadApiBaseParams & { pin: number, mode: OssmSchema.OssmGpioPinMode, value: boolean }): Promise<void> {
-        this.#enforceRange(params.pin, 0, 4, "Invalid GPIO pin number");
+        enforceRange(params.pin, 0, 4, "Invalid GPIO pin number");
         await this.writeSetting({
             ...params,
             path: `analog.expansion${params.pin}`,
@@ -345,7 +347,7 @@ export class OssmBleClient extends RadBleApi {
     setAfterHomingPosition(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setAfterHomingPosition(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
-        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
+        enforceRange(opts.value, 0, 100);
         await this.writeSetting({ ...opts, path: "setting.afterHomingPosition", args: { value: opts.value }});
     }
 
@@ -353,7 +355,7 @@ export class OssmBleClient extends RadBleApi {
     setMqttPublishFrequency(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setMqttPublishFrequency(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
-        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
+        enforceRange(opts.value, 0, 100);
         await this.writeSetting({ ...opts, path: "setting.mqttPublishFrequency", args: { value: opts.value }});
     }
 
@@ -361,7 +363,7 @@ export class OssmBleClient extends RadBleApi {
     setSpeedBle(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setSpeedBle(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
-        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
+        enforceRange(opts.value, 0, 100);
         await this.writeSetting({ ...opts, path: "motion.speedBle", args: { value: opts.value }});
     }
 
@@ -377,7 +379,8 @@ export class OssmBleClient extends RadBleApi {
     setPattern(params: RadApiBaseParams & { patternIdx: number }): Promise<void>;
     async setPattern(arg: RadApiBaseParams & { patternIdx: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "patternIdx");
-        this.#enforceRange(opts.patternIdx, 0, Number.MAX_SAFE_INTEGER, "Pattern index must be positive");
+        if (Number.isInteger(opts.patternIdx)) throw new DOMException("Pattern index must be an integer", "IndexSizeError");
+        enforceRange(opts.patternIdx, 0, Number.MAX_SAFE_INTEGER, "Pattern index must be positive");
         await this.writeSetting({ ...opts, path: "motion.pattern", args: { value: opts.patternIdx }});
     }
 
@@ -386,7 +389,7 @@ export class OssmBleClient extends RadBleApi {
     setSpeed(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setSpeed(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
-        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
+        enforceRange(opts.value, 0, 100);
         await this.writeSetting({ ...opts, path: "motion.speed", args: { value: opts.value }, isPriority: true });
     }
 
@@ -395,7 +398,7 @@ export class OssmBleClient extends RadBleApi {
     setStroke(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setStroke(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
-        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
+        enforceRange(opts.value, 0, 100);
         await this.writeSetting({ ...opts, path: "motion.stroke", args: { value: opts.value }});
     }
 
@@ -404,7 +407,7 @@ export class OssmBleClient extends RadBleApi {
     setDepth(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setDepth(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
-        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
+        enforceRange(opts.value, 0, 100);
         await this.writeSetting({ ...opts, path: "motion.depth", args: { value: opts.value }});
     }
 
@@ -413,7 +416,7 @@ export class OssmBleClient extends RadBleApi {
     setSensation(params: RadApiBaseParams & { value: number }): Promise<void>;
     async setSensation(arg: RadApiBaseParams & { value: number } | number): Promise<void> {
         const opts = this._singleArg(arg, "value");
-        this.#enforceRange(opts.value, 0, 100, "Value must be between 0 and 100");
+        enforceRange(opts.value, 0, 100);
         await this.writeSetting({ ...opts, path: "motion.sensation", args: { value: opts.value }});
     }
 
@@ -573,9 +576,9 @@ export class OssmBleClient extends RadBleApi {
      */
     async setLed(params: RadApiBaseParams & { r: number, g: number, b: number }): Promise<void> {
         // Range validation will be left to the firmware
-        this.#enforceRange(params.r, 0, 255, "Red value must be between 0 and 255");
-        this.#enforceRange(params.g, 0, 255, "Green value must be between 0 and 255");
-        this.#enforceRange(params.b, 0, 255, "Blue value must be between 0 and 255");
+        enforceRange(params.r, 0, 255, "Red value must be between 0 and 255");
+        enforceRange(params.g, 0, 255, "Green value must be between 0 and 255");
+        enforceRange(params.b, 0, 255, "Blue value must be between 0 and 255");
         await this.send({
             ...params,
             req: {
@@ -640,18 +643,21 @@ export class OssmBleClient extends RadBleApi {
      * Fetches the available patterns from the OSSM device
      * @returns A list of {@link OssmPattern} objects
      */
-    async *getPatterns(): AsyncGenerator<OssmSchema.OssmPattern, void, unknown> {
+    async *getPatterns(ct?: ICancellationToken): AsyncGenerator<OssmSchema.OssmPattern, void, unknown> {
         // Based on old code from: https://github.com/ReadieFur/OSSM-BLE-Web/blob/19d6eecf9a329d60b48c56e56ad36bddd5f3fd98/src/OssmClient.ts#L102-L128
 
         // Since this uses the still exposed legacy endpoint, we don't need a lease
+
+        const cts = !ct && this.defaultTimeoutMs ? CancellationTokenSource.createWithTimeout(this.defaultTimeoutMs) : undefined;
+        ct = ct ?? cts?.token ?? CancellationToken.None;
 
         // The pattern API has a suffix of 3000 which can be reached via the 'button' tag
         const basicPatternInfo = this._parseValueAsJson<OssmSchema.OssmBasicPatternInfo[]>(
             await this._taskQueue.enqueue(async () => {
                 this._requireRadCharacteristic("button");
                 return this._radService.button!.readValue();
-            }
-        ));
+            }, ct)
+        );
         this._debugLog(`[${this._device.id}] Read Legacy API (suffix=3000):`, basicPatternInfo);
 
         for (const pattern of basicPatternInfo) {
@@ -662,8 +668,8 @@ export class OssmBleClient extends RadBleApi {
                     this._debugLog(`[${this._device.id}] Writing Legacy API (suffix=3010):`, pattern.idx);
                     await this._radService.encoder!.writeValue(this._enc.encode(pattern.idx.toString()));
                     return this._radService.encoder!.readValue();
-                }
-            ));
+                }, ct)
+            );
             this._debugLog(`[${this._device.id}] Read Legacy API (suffix=3010):`, description);
 
             yield {
@@ -756,10 +762,6 @@ export class OssmBleClient extends RadBleApi {
          * But still wait for all of them to complete before returning
          */
         await Promise.all(promises);
-    }
-
-    #enforceRange(value: number, min: number, max: number, errorStr?: string): void {
-        if (value < min || value > max) throw new DOMException(errorStr, "IndexSizeError");
     }
     // #endregion
 }
