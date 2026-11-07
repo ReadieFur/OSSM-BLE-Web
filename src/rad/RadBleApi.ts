@@ -1,10 +1,10 @@
-import { BleConnectionHandler, GattServiceDefinition } from "./BleConnectionHandler";
+import { BleConnectionHandler, GattServiceDefinition } from "../common/BleConnectionHandler";
 import { AutoLease, RadLease, SimpleLease } from "./RadLease";
 import * as Schema from "./RadProtocolSchema";
 import crc32 from "crc-32";
-import { SingleEvent, SingleEventSource } from "./SingleEvent";
-import { AsyncFunctionQueue } from "./AsyncFunctionQueue";
-import { CancellationToken, CancellationTokenRegistration, CancellationTokenSource, ICancellationToken } from "./CancellationToken";
+import { SingleEvent, SingleEventSource } from "../common/SingleEvent";
+import { AsyncFunctionQueue } from "../common/AsyncFunctionQueue";
+import { CancellationToken, CancellationTokenRegistration, CancellationTokenSource, ICancellationToken } from "../common/CancellationToken";
 
 // #region Rad ble api metadata
 // Pulled from https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json

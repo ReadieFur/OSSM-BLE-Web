@@ -9,11 +9,11 @@
  */
 
 // #region Imports
-import { BleConnectionHandler } from "./BleConnectionHandler";
-import { CancellationToken, CancellationTokenSource, ICancellationToken } from "./CancellationToken";
-import { enforceRange } from "./Helpers";
-import * as OssmSchema from "./OssmProtocolSchema";
-import { SingleEvent, SingleEventSource } from "./SingleEvent";
+import { BleConnectionHandler } from "../common/BleConnectionHandler";
+import { CancellationToken, CancellationTokenSource, ICancellationToken } from "../common/CancellationToken";
+import { enforceRange } from "../common/Helpers";
+import * as OssmSchema from "../ossm/OssmProtocolSchema";
+import { SingleEvent, SingleEventSource } from "../common/SingleEvent";
 // #endregion
 
 // #region Common codecs

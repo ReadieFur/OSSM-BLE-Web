@@ -3,7 +3,7 @@
  * https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp
  */
 
-import * as RadSchema from "./RadProtocolSchema";
+import * as RadSchema from "../rad/RadProtocolSchema";
 
 // #region Surface
 // https://github.com/KinkyMakers/OSSM-hardware/blob/main/Software/src/services/communication/rad_ble.cpp#L570
