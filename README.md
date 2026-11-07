@@ -39,7 +39,6 @@ import { OssmBleClient } from "ossm-ble-web";
 // Must be called in response to a user gesture, e.g., button click
 const client = await OssmBleClient.pairDevice();
 await client.begin();
-await client.connect();
 await client.acquireLease(true); // Required for write operations
 ```
 
