@@ -7,6 +7,7 @@ type QueueItem = {
     ctRegistration?: CancellationTokenRegistration;
 };
 
+/** @internal */
 export class AsyncFunctionQueue {
     #queue: Array<QueueItem> = [];
     #isProcessing = false;

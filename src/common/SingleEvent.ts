@@ -3,6 +3,7 @@ export interface SingleEvent<Args extends any[] = []> {
     unsubscribe(callback: (...args: Args) => void): void;
 }
 
+/** @internal */
 export class SingleEventSource<Args extends any[] = []> implements SingleEvent<Args> {
     #listeners = new Set<(...args: Args) => void>();
 

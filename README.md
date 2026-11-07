@@ -8,10 +8,16 @@ OSSM BLE Web is library for communicating with [OSSM](https://github.com/KinkyMa
 - JavaScript enabled in the browser.
 - User permission to access Bluetooth devices.
 
+## Supported firmwares
+- [Official OSSM firmware](https://docs.researchanddesire.com/ossm/tools/web-flasher)
+- [Lite firmware by Fray-d](https://github.com/fray-d/OSSM-Lite/tree/New-Protocols)
+
 ## Installation
 You can include OSSM BLE Web in your web project by downloading the [latest release](https://github.com/ReadieFur/OSSM-BLE-Web/releases/latest).
 
 ## Quick start usage guide
+The following guide is for interacting with the official OSSM firmware via `OssmBleClient`, but the way you'd interact with the Lite firmware is very similar, just use the `OssmLiteClient` class instead.
+
 The library is bundled to a single JavaScript file. To use it in your web application you must import either the `ossm-ble-web.global.js` for global scope or as a module using `ossm-ble-web.js`.  
 
 This library has VASTLY far more capabilities than what is listed below.  
